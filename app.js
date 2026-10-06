@@ -29,6 +29,7 @@
   };
   const KEY='fitcoach:v1';
   const getLast=(name)=>{for(let i=state.history.length-1;i>=0;i--){const e=(state.history[i].exercises||[]).find(x=>x.name===name);if(e)return e;}return null;};
+  const recommend=(previous,target)=>{if(!previous)return 'Commencez léger et gardez environ 3 RIR pour apprendre le mouvement.'; const reps=Number(previous.reps)||0, kg=Number(previous.kg)||0; if(reps>=target && Number(previous.rir||2)>=2)return 'Cible proposée : '+(kg?kg+' kg ':'')+'× '+target+' reps. Si vous atteignez toutes les séries avec RIR ≥ 2, augmentez légèrement la prochaine fois.'; return 'Objectif : reproduire ou dépasser '+(kg?kg+' kg × ':'')+Math.max(1,reps)+' reps avec une technique propre.';};
   const weeklyCount=()=>{const d=new Date(),day=d.getDay()||7; const m=new Date(d);m.setDate(d.getDate()-day+1);m.setHours(0,0,0,0);return state.history.filter(h=>new Date(h.date)>=m).length;};
   const state=JSON.parse(localStorage.getItem(KEY)||'null')||{history:[],weight:78,goal:3};
   const app=document.getElementById('app');
@@ -81,8 +82,8 @@
     layout(`<div class="workout-head"><button class="back" data-nav="home">←</button><div><b>${p.name}</b><small>${route.index+1}/${total}</small></div><span>${Math.round((route.index)/total*100)}%</span></div>
       <div class="progress"><i style="width:${Math.round((route.index+1)/total*100)}%"></i></div>
       <section class="exercise">
-        <div class="illustration">${ex[6]}</div><div class="tag">EXERCICE ${route.index+1}</div><h1>${ex[1]}</h1><p class="muscles">${ex[3]}</p>
-        <div class="cue"><b>Technique</b><span>${ex[4]}</span></div>
+        <div class="illustration"><img src="assets/illustrations/${ex[0]}.svg" alt="Illustration ${ex[1]}" loading="eager"></div><div class="tag">EXERCICE ${route.index+1}</div><h1>${ex[1]}</h1><p class="muscles">${ex[3]}</p>
+        <div class="cue"><b>Technique</b><span>${ex[4]}</span></div><div class="coach-tip"><b>🎯 Suggestion du coach</b><span>${recommend(previous,Number(ex[3])||10)}</span></div>
         <div class="prescription"><strong>${ex[2]} × ${ex[3]}</strong><span>Repos recommandé · 90 s</span>${previous?`<small>Dernière fois : ${previous.kg} kg × ${previous.reps} reps</small>`:'<small>Première séance enregistrée</small>'}</div>
         <div class="setlist">${Array.from({length:ex[2]},(_,i)=>{const s=saved[i]; return `<div class="set-row"><span>Série ${i+1}</span><input inputmode="decimal" placeholder="kg" value="${s?.kg??''}" data-kg="${i}"><input inputmode="numeric" placeholder="reps" value="${s?.reps??ex[3]}" data-reps="${i}"><input class="rir" inputmode="numeric" placeholder="RIR" value="${s?.rir??2}" data-rir="${i}"><button class="${s?.done?'checked':''}" data-set="${i}">${s?.done?'✓':'OK'}</button></div>`}).join('')}</div>
         <div class="actions"><button class="secondary" data-action="rest">⏱ Repos 90 s</button><button class="primary" data-action="next">${route.index===total-1?'Terminer la séance':'Exercice suivant →'}</button></div>
@@ -95,7 +96,7 @@
     const rows=Object.entries(best).slice(0,8);
     const badges=[]; if(state.history.length>=1)badges.push('🏁 Première séance'); if(state.history.length>=10)badges.push('💪 10 séances'); if(totalVol>=10000)badges.push('🏋️ 10 000 kg'); if(calcStreak()>=4)badges.push('🔥 4 semaines');
     layout(`<section class="hero compact"><div class="eyebrow">PROGRESSION</div><h1>Chaque séance<br><span>compte.</span></h1></section>
-      <div class="grid stats three"><div><b>${state.history.length}</b><small>séances</small></div><div><b>${Math.round(totalVol)}</b><small>kg déplacés</small></div><div><b>${fmtMin(state.history.reduce((a,h)=>a+h.duration,0))}</b><small>temps total</small></div></div>
+      <div class="grid stats three"><div><b>${state.history.length}</b><small>séances</small></div><div><b>${Math.round(totalVol)}</b><small>kg déplacés</small></div><div><b>${fmtMin(state.history.reduce((a,h)=>a+h.duration,0))}</b><small>temps total</small></div></div><section><div class="section-title"><h2>Volume récent</h2><span>8 dernières séances</span></div><div class="bars">${state.history.slice(-8).map(h=>{const recent=state.history.slice(-8);const max=Math.max(1,...recent.map(x=>x.volume||0));return '<div><i style="height:'+Math.max(8,Math.round((h.volume||0)/max*100))+'%"></i><small>'+Math.round((h.volume||0)/100)/10+'k</small></div>'}).join('')||'<div class="empty">Vos données apparaîtront ici après vos séances.</div>'}</div></section>
       <section><div class="section-title"><h2>Vos badges</h2></div><div class="badges">${badges.map(b=>`<span>${b}</span>`).join('')||'<span>Votre premier badge est à une séance d’ici 🏁</span>'}</div></section><section><div class="section-title"><h2>Meilleures charges</h2></div><div class="table">${rows.map(([n,v])=>`<div><span>${esc(n)}</span><b>${v.kg} kg × ${v.reps}</b></div>`).join('')||'<div class="empty">Complétez votre première séance pour voir vos records.</div>'}</div></section>
       <section><div class="section-title"><h2>Historique</h2></div><div class="history">${state.history.slice().reverse().slice(0,10).map(h=>`<article><div><b>${h.name}</b><small>${fmtDate(h.date)} · ${Math.round(h.duration/60)} min</small></div><strong>${Math.round(h.volume)} kg</strong></article>`).join('')||'<div class="empty">Aucun entraînement enregistré.</div>'}</div></section>`);
   }
