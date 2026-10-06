@@ -32,7 +32,7 @@
   const state=JSON.parse(localStorage.getItem(KEY)||'{}');
   state.history=Array.isArray(state.history)?state.history:[];
   state.weights=Array.isArray(state.weights)?state.weights:[];
-  let route={page:'home',session:null,index:0,sets:[]},start=0,timer=null,remaining=0;
+  let route={page:'home',session:null,index:0,sets:[]},start=0,timerId=null,remaining=0;
   const save=()=>localStorage.setItem(KEY,JSON.stringify(state));
   const esc=s=>String(s??'').replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
   const step=w=>Number(w)>=20?2.5:Number(w)>=10?1.25:0.5;
@@ -101,18 +101,18 @@
     const nxt=nextSession();route={page:'home',session:null,index:0,sets:[]};
     layout(`<section class="done-screen practical-done"><div class="trophy">✓</div><div class="eyebrow">SÉANCE TERMINÉE</div><h1>Bravo.<br><span>Travail terminé.</span></h1><div class="done-grid"><div><b>${Math.round(duration/60)} min</b><small>durée</small></div><div><b>${Math.round(volume)} kg</b><small>volume</small></div><div><b>${done.length}</b><small>séries</small></div></div><section class="next-advice"><b>💡 La prochaine fois</b><p>Gardez vos charges actuelles. Quand vous atteignez le haut de la fourchette avec RIR ≥ 2, ajoutez un petit palier.</p></section><button class="primary" data-session="${nxt}">Prochaine séance · ${PLAN[nxt].name} →</button><button class="secondary full-btn" data-nav="progress">Voir mes progrès</button></section>`);
   }
-  function timer(seconds){clearInterval(timer);remaining=seconds;const tick=()=>{remaining--;document.querySelectorAll('[data-timer]').forEach(x=>x.textContent=remaining>0?Math.ceil(remaining)+' s':'Repos terminé ✓');if(remaining<=0)clearInterval(timer)};tick();timer=setInterval(tick,1000)}
+  function startTimer(seconds){clearInterval(timerId);remaining=seconds;const tick=()=>{remaining--;document.querySelectorAll('[data-timer]').forEach(x=>x.textContent=remaining>0?Math.ceil(remaining)+' s':'Repos terminé ✓');if(remaining<=0)clearInterval(timer)};tick();timerId=setInterval(tick,1000)}
   document.addEventListener('click',e=>{
     const n=e.target.closest('[data-nav]');if(n){route.page=n.dataset.nav;route.session=null;route.index=0;route.sets=[];({home,workout,progress}[route.page]||home)();return}
     const ss=e.target.closest('[data-session]');if(ss){startSession(ss.dataset.session);return}
-    const rest=e.target.closest('[data-action="rest"]');if(rest){timer(90);rest.textContent='⏱ Repos · <span data-timer>90 s</span>';return}
+    const rest=e.target.closest('[data-action="rest"]');if(rest){startTimer(90);rest.textContent='⏱ Repos · <span data-timer>90 s</span>';return}
     const next=e.target.closest('[data-action="next"]');if(next){if(route.index===PLAN[route.session].exercises.length-1)completeSession();else{route.index++;workout()}return}
     const set=e.target.closest('[data-set]');if(set){
       const row=set.closest('.set-row'),ex=PLAN[route.session].exercises[route.index],idx=Number(set.dataset.set),kg=row.querySelector('[data-kg]').value,reps=row.querySelector('[data-reps]').value,rir=row.querySelector('[data-rir]').value;
       if(!reps){row.querySelector('[data-reps]').focus();return}
       let r=route.sets.find(x=>x.exerciseId===ex[0]&&x.index===idx);if(!r){r={exerciseId:ex[0],index:idx};route.sets.push(r)}Object.assign(r,{kg,reps,rir,done:true});saveDraft();
       workout();setTimeout(()=>{const el=document.querySelectorAll('.set-row')[idx];if(el)el.scrollIntoView({behavior:'smooth',block:'center'})},30);
-      if(Number(rir)<2)timer(90);
+      if(Number(rir)<2)startTimer(90);
     }
   });
   document.addEventListener('input',e=>{if(e.target.matches('[data-kg],[data-reps],[data-rir]')){const ex=PLAN[route.session]?.exercises[route.index];if(!ex)return;const idx=Number(e.target.dataset.kg??e.target.dataset.reps??e.target.dataset.rir);let r=route.sets.find(x=>x.exerciseId===ex[0]&&x.index===idx);if(!r){r={exerciseId:ex[0],index:idx};route.sets.push(r)}if(e.target.dataset.kg!==undefined)r.kg=e.target.value;if(e.target.dataset.reps!==undefined)r.reps=e.target.value;if(e.target.dataset.rir!==undefined)r.rir=e.target.value;saveDraft()}});
