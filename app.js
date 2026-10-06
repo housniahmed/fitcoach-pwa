@@ -139,7 +139,7 @@
       '<section class="exercise"><div class="illustration"><img src="assets/illustrations/'+ex[0]+'.svg" alt="Illustration '+ex[1]+'" loading="eager"></div>'+
       '<div class="tag">EXERCICE '+(route.index+1)+' · SMART MODE</div><h1>'+ex[1]+'</h1><p class="muscles">'+ex[4]+'</p>'+
       '<div class="cue"><b>Technique</b><span>'+ex[5]+'</span></div>'+
-      '<div class="coach-tip smart-tip"><b>🤖 Coach V6.1 · Live Coach</b><span>'+targetLoad+' × '+range[0]+'–'+range[1]+' '+unit+' · RIR cible '+preview.rir+'</span><small>La cible s’adapte après chaque série selon vos reps et votre RIR.</small></div><div class="live-status ' + live.tone + '"><b>' + live.label + '</b><span>' + live.text + '</span><em>Fatigue estimée · ' + fatigue + '%</em></div>'+
+      '<div class="coach-tip smart-tip"><b>🤖 Coach V6.1 · Live Coach</b><span>'+targetLoad+' × '+range[0]+'–'+range[1]+' '+unit+' · RIR cible '+preview.rir+'</span><small>La cible s’adapte après chaque série selon vos reps et votre RIR.</small></div><div class="live-status '+live.tone+'"><b>'+live.label+'</b><span>'+live.text+'</span><em>Fatigue estimée · '+fatigue+'%</em></div>'+
       '<div class="prescription"><strong>'+ex[2]+' × '+range[0]+'–'+range[1]+' '+unit+'</strong><span>Repos recommandé · 90 s · RIR cible 2</span>'+previousLine+'</div>'+
       '<div class="setlist">'+rows+'</div><div class="actions"><button class="secondary" data-action="rest">⏱ Repos 90 s</button><button class="primary" data-action="next">'+(route.index===total-1?'Terminer la séance':'Exercice suivant →')+'</button></div></section>');
   }
