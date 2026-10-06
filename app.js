@@ -97,6 +97,32 @@
     if(decision.mode==='normal'||decision.mode==='maintain')return base;
     return Math.max(1,Math.round(base*decision.factor));
   };
+  const exerciseHistory=(name)=>state.history.flatMap(h=>(h.exercises||[]).filter(e=>e.name===name).map(e=>({...e,date:h.date,session:h.name}))).filter(e=>e.sets?.length||Number(e.reps)>0);
+  const exerciseProfile=(name,range)=>{
+    const history=exerciseHistory(name).slice(-6);
+    if(!history.length)return {status:'new',label:'🆕 Référence à construire',tone:'neutral',detail:'Aucune tendance fiable : le coach établit votre première référence.',gain:0};
+    const first=history[0],last=history.at(-1);
+    const firstKg=Math.max(...(first.sets||[{kg:first.kg}]).map(s=>Number(s.kg)||0));
+    const lastKg=Math.max(...(last.sets||[{kg:last.kg}]).map(s=>Number(s.kg)||0));
+    const firstReps=Math.max(...(first.sets||[{reps:first.reps}]).map(s=>Number(s.reps)||0));
+    const lastReps=Math.max(...(last.sets||[{reps:last.reps}]).map(s=>Number(s.reps)||0));
+    const gain=firstKg>0?Math.round((lastKg-firstKg)/firstKg*100):lastReps-firstReps;
+    const plateau=history.length>=3&&history.slice(-3).every(h=>{const sets=h.sets||[];const maxKg=Math.max(...sets.map(s=>Number(s.kg)||0),Number(h.kg)||0);const maxReps=Math.max(...sets.map(s=>Number(s.reps)||0),Number(h.reps)||0);return maxKg<=lastKg&&maxReps<=lastReps;});
+    if(plateau)return {status:'plateau',label:'🟠 Plateau détecté',tone:'warn',detail:'Performance stable sur plusieurs expositions : cherchez d’abord des répétitions propres.',gain};
+    if(gain>0||lastReps>firstReps)return {status:'progress',label:'🟢 Progression',tone:'good',detail:'Votre performance monte : conservez la double progression.',gain};
+    return {status:'stable',label:'🟡 Stable',tone:'warn',detail:'Performance stable : cherchez une répétition propre supplémentaire.',gain};
+  };
+  const adaptiveTarget=(name,setIndex,range,previousSets,currentSets)=>{
+    const base=targetForSet(name,setIndex,range,previousSets,currentSets);
+    if(adaptiveDecision().mode==='deload')return {...base,reps:range[0],rir:3};
+    return base;
+  };
+  const coachDecision=(name,range)=>{
+    const profile=exerciseProfile(name,range);
+    if(profile.status==='plateau')return {title:profile.label,text:'Ajoutez d’abord 1 répétition avec la même charge avant toute hausse de poids.',tone:'warn'};
+    if(profile.status==='progress')return {title:'📈 Progression confirmée',text:'La performance évolue : augmentez seulement en haut de fourchette avec RIR suffisant.',tone:'good'};
+    return {title:'🎯 Construire la performance',text:'Priorité aux répétitions propres avec environ 2 RIR.',tone:'good'};
+  };
 
   const recommend=(previousSets,target,range)=>{if(!previousSets.length)return 'Commencez léger et gardez environ 3 RIR. Priorité à la technique.';const valid=previousSets.filter(s=>Number(s.reps)>0);if(!valid.length)return 'Commencez léger et construisez une première référence.';const allTop=valid.length>=3&&valid.every(s=>Number(s.reps)>=range[1]);const allSafe=valid.every(s=>Number(s.rir)>=2);const avgKg=valid.reduce((a,s)=>a+(Number(s.kg)||0),0)/valid.length;const avgRir=valid.reduce((a,s)=>a+(Number(s.rir)||0),0)/valid.length;const load=avgKg?Math.round(avgKg*10)/10:0;if(allTop&&allSafe&&load){const step=load>=20?2.5:load>=10?1.25:0.5;return `Progression : ${load+step} kg × ${range[0]}–${range[1]} reps. La dernière séance était complète avec environ ${Math.round(avgRir*10)/10} RIR moyen.`;}if(valid.some(s=>Number(s.rir)<2)){return `Conservez ${load?load+' kg':'la même charge'} et visez ${range[0]}–${range[1]} reps. Ne montez pas la charge tant que le RIR moyen reste sous 2.`;}const best=Math.max(...valid.map(s=>Number(s.reps)||0));return `Conservez ${load?load+' kg':'la même charge'} et essayez d'atteindre ${Math.min(range[1],best+1)} reps sur les séries avec une technique propre.`;};
   const weeklyCount=()=>{const d=new Date(),day=d.getDay()||7; const m=new Date(d);m.setDate(d.getDate()-day+1);m.setHours(0,0,0,0);return state.history.filter(h=>new Date(h.date)>=m).length;};
@@ -149,10 +175,10 @@
     const p=PLAN[route.session]; if(!p){choose();return;}
     const ex=p.exercises[route.index],previous=getLast(ex[1]),previousSets=getLastSets(ex[1]);
     const range=RANGES[ex[0]]||[ex[3],ex[3]],saved=route.sets.filter(s=>s.exerciseId===ex[0]),total=p.exercises.length; const decision=adaptiveDecision(); const setCount=plannedSets(ex);
-    const preview=targetForSet(ex[1],saved.length,range,previousSets,saved),targetLoad=preview.kg?preview.kg+' kg':'Charge à définir',unit=ex[0]==='plank'?'secondes':'reps'; const live=liveState(saved,range),fatigue=fatigueScore(saved);
+    const preview=adaptiveTarget(ex[1],saved.length,range,previousSets,saved),targetLoad=preview.kg?preview.kg+' kg':'Charge à définir',unit=ex[0]==='plank'?'secondes':'reps'; const coach=coachDecision(ex[1],range); const live=liveState(saved,range),fatigue=fatigueScore(saved);
     const previousLine=previous?'<small>Dernière séance : '+previous.kg+' kg × '+previous.reps+' reps · RIR '+(previous.rir||'—')+'</small>':'<small>Première séance enregistrée : construisez votre référence.</small>';
     const rows=Array.from({length:setCount},(_,i)=>{
-      const s=saved[i],t=targetForSet(ex[1],i,range,previousSets,saved),kg=s?.kg??(t.kg||''),reps=s?.reps??t.reps,rir=s?.rir??t.rir,feedback=s?.done?evaluateSet(s,range):null;
+      const s=saved[i],t=adaptiveTarget(ex[1],i,range,previousSets,saved),kg=s?.kg??(t.kg||''),reps=s?.reps??t.reps,rir=s?.rir??t.rir,feedback=s?.done?evaluateSet(s,range):null;
       return '<div class="set-row '+(s?.done?'set-complete':'')+'"><span>Série '+(i+1)+'<small class="set-target">Cible : '+(t.kg?t.kg+' kg':'à définir')+' · '+t.reps+' reps · RIR '+t.rir+'</small></span><input inputmode="decimal" placeholder="kg" value="'+kg+'" data-kg="'+i+'"><input inputmode="numeric" placeholder="reps" value="'+reps+'" data-reps="'+i+'"><input class="rir" inputmode="numeric" placeholder="RIR" value="'+rir+'" data-rir="'+i+'"><button class="'+(s?.done?'checked':'')+'" data-set="'+i+'">'+(s?.done?'✓':'OK')+'</button>'+(feedback?'<div class="set-feedback '+feedback.tone+'"><b>'+feedback.title+'</b><span>'+feedback.text+'</span></div>':'')+'</div>';
     }).join('');
     layout('<div class="workout-head"><button class="back" data-nav="home">←</button><div><b>'+p.name+'</b><small>'+route.index+1+'/'+total+'</small></div><span>'+Math.round((route.index)/total*100)+'%</span></div>'+
@@ -161,7 +187,7 @@
       '<div class="tag">EXERCICE '+(route.index+1)+' · SMART MODE</div><h1>'+ex[1]+'</h1><p class="muscles">'+ex[4]+'</p>'+
       '<div class="cue"><b>Technique</b><span>'+ex[5]+'</span></div>'+
       '<div class="coach-tip smart-tip"><b>🤖 Coach V6.1 · Live Coach</b><span>'+targetLoad+' × '+range[0]+'–'+range[1]+' '+unit+' · RIR cible '+preview.rir+'</span><small>La cible s’adapte après chaque série selon vos reps et votre RIR.</small></div><div class="live-status '+live.tone+'"><b>'+live.label+'</b><span>'+live.text+'</span><em>Fatigue estimée · '+fatigue+'%</em></div>'+
-      '<div class="prescription"><strong>'+setCount+' × '+range[0]+'–'+range[1]+' '+unit+'</strong><span>Repos recommandé · 90 s · RIR cible 2</span>'+previousLine+'</div><div class="volume-advice '+decision.tone+'"><b>'+decision.label+'</b><span>'+decision.detail+'</span></div>'+
+      '<div class="prescription"><strong>'+setCount+' × '+range[0]+'–'+range[1]+' '+unit+'</strong><span>Repos recommandé · 90 s · RIR cible 2</span>'+previousLine+'</div><div class="volume-advice '+decision.tone+'"><b>'+decision.label+'</b><span>'+decision.detail+'</span></div><div class="coach-decision '+coach.tone+'"><b>'+coach.title+'</b><span>'+coach.text+'</span></div>'+
       '<div class="setlist">'+rows+'</div><div class="actions"><button class="secondary" data-action="rest">⏱ Repos 90 s</button><button class="primary" data-action="next">'+(route.index===total-1?'Terminer la séance':'Exercice suivant →')+'</button></div></section>');
   }
   function progress(){
@@ -179,10 +205,11 @@
     const progressing=trendData.filter(x=>x.gain>0).length, stagnant=trendData.filter(x=>x.gain===0).length, declining=trendData.filter(x=>x.gain<0).length;
     const consistency=Math.min(100,Math.round(state.history.length/Math.max(1,Math.ceil((Date.now()-new Date(state.history[0]?.date||Date.now()))/(7*86400000)))*100/3));
     const badges=[];if(state.history.length>=1)badges.push('🏁 Première séance');if(state.history.length>=10)badges.push('💪 10 séances');if(totalVol>=10000)badges.push('🏋️ 10 000 kg');if(calcStreak()>=4)badges.push('🔥 4 semaines');if(progressing>=3)badges.push('📈 En progression');
-    const next=PLAN[nextSession()]; const recovery=recoveryScore(); const decision=adaptiveDecision();
-    layout(`<section class="hero compact"><div class="eyebrow">FITCOACH V6.3 · ADAPTIVE COACHING</div><h1>Votre progression<br><span>en un coup d’œil.</span></h1><p>Le Live Coach ajuste vos cibles en temps réel, estime la fatigue et transforme chaque séance en nouvelle donnée de progression.</p><section class="recovery-mini ${recovery.tone}"><b>${recovery.label}</b><span>${recovery.score}/100 · ${recovery.action}</span></section><section class="adaptive-mini ${decision.tone} "><b>${decision.label}</b><span>${decision.detail}</span></section></section>
+    const next=PLAN[nextSession()]; const recovery=recoveryScore(); const decision=adaptiveDecision(); const adaptiveProfiles=Object.entries(RANGES).map(([id,r])=>{const ex=Object.values(PLAN).flatMap(p=>p.exercises).find(x=>x[0]===id);return ex?{name:ex[1],profile:exerciseProfile(ex[1],r)}:null}).filter(Boolean); const plateauCount=adaptiveProfiles.filter(x=>x.profile.status==='plateau').length;
+    layout(`<section class="hero compact"><div class="eyebrow">FITCOACH V7 · ADAPTIVE COACH ENGINE</div><h1>Votre progression<br><span>en un coup d’œil.</span></h1><p>Le Live Coach ajuste vos cibles en temps réel, estime la fatigue et transforme chaque séance en nouvelle donnée de progression.</p><section class="recovery-mini ${recovery.tone}"><b>${recovery.label}</b><span>${recovery.score}/100 · ${recovery.action}</span></section><section class="adaptive-mini ${decision.tone} "><b>${decision.label}</b><span>${decision.detail}</span></section></section>
       <section class="coach-dashboard"><div><div class="eyebrow">🎯 RECOMMANDATION</div><h2>${next.name}</h2><p>${next.focus}</p></div><button data-session="${nextSession()}">Démarrer →</button></section>
       <div class="grid stats"><div><b>${state.history.length}</b><small>séances</small></div><div><b>${Math.round(totalVol/100)/10}k</b><small>kg volume</small></div><div><b>${fmtMin(totalTime)}</b><small>temps total</small></div></div>
+      <section><div class="section-title"><h2>Adaptive Coach · V7</h2><span>${plateauCount} plateau${plateauCount>1?"s":""}</span></div><div class="adaptive-summary"><div><b>🤖</b><span>Profils analysés</span><strong>${adaptiveProfiles.length}</strong></div><div><b>📈</b><span>En progression</span><strong>${progressing}</strong></div><div><b>🟠</b><span>Plateaux</span><strong>${plateauCount}</strong></div></div></section>
       <section><div class="section-title"><h2>État de progression</h2><span>${progressing} en hausse</span></div><div class="status-grid"><div><b>📈 ${progressing}</b><small>progressent</small></div><div><b>⏸ ${stagnant}</b><small>stables</small></div><div><b>📉 ${declining}</b><small>à surveiller</small></div></div></section>
       <section><div class="section-title"><h2>Volume des séances</h2><span>8 dernières</span></div><div class="bars">${recent.map(h=>`<div><i style="height:${Math.max(8,Math.round((h.volume||0)/maxVol*100))}%"></i><small>${Math.round((h.volume||0)/100)/10}k</small></div>`).join('')||'<div class="empty">Vos données apparaîtront après votre première séance.</div>'}</div></section>
       <section><div class="section-title"><h2>Régularité · 28 jours</h2><span>🔥 ${calcStreak()} sem.</span></div><div class="calendar">${calendar}</div></section>
