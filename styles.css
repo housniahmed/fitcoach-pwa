@@ -48,3 +48,7 @@
 
 /* FitCoach V7.8 — Strategy Outcome Learning */
 .strategy-learning{display:grid;grid-template-columns:repeat(2,1fr);gap:9px}.strategy-learning article{background:#fff;border:1px solid var(--line);border-radius:16px;padding:13px}.strategy-learning b{display:block;font-size:12px}.strategy-learning strong{display:block;margin:5px 0;font-size:16px}.strategy-learning span,.strategy-learning small{display:block;color:var(--muted);font-size:10px;line-height:1.45}.strategy-learning span{font-weight:700;color:#344054}.strategy-learning small{margin-top:3px}@media(max-width:520px){.strategy-learning{grid-template-columns:1fr}}
+
+
+/* FitCoach V7.9 — Personalized Strategy Optimizer */
+.strategy-learning article{position:relative;overflow:hidden}.strategy-learning article::after{content:'V7.9';position:absolute;top:9px;right:9px;font-size:8px;font-weight:900;letter-spacing:.08em;color:#6d28d9;background:#f5f3ff;border:1px solid #ddd6fe;border-radius:999px;padding:3px 6px}.strategy-learning article strong{color:#3730a3}.strategy-context-note{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}.strategy-context-note span{background:#f8fafc;border:1px solid var(--line);border-radius:999px;padding:5px 8px;font-size:9px;color:#667085}@media(max-width:520px){.strategy-learning article::after{top:8px;right:8px}.strategy-context-note{gap:5px}}
