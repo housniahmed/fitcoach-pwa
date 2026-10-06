@@ -112,6 +112,7 @@
     if(gain>0||lastReps>firstReps)return {status:'progress',label:'🟢 Progression',tone:'good',detail:'Votre performance monte : conservez la double progression.',gain};
     return {status:'stable',label:'🟡 Stable',tone:'warn',detail:'Performance stable : cherchez une répétition propre supplémentaire.',gain};
   };
+  const estimateE1RM=(kg,reps)=>{const load=Number(kg)||0,r=Number(reps)||0;if(load<=0||r<=0)return 0;return r<=12?Math.round(load*(1+r/30)*10)/10:Math.round(load*10)/10};
   const adaptiveTarget=(name,setIndex,range,previousSets,currentSets)=>{
     const base=targetForSet(name,setIndex,range,previousSets,currentSets);
     if(adaptiveDecision().mode==='deload')return {...base,reps:range[0],rir:3};
