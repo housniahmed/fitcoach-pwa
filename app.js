@@ -140,7 +140,7 @@
     return base;
   };
   const coachDecision=(name,range)=>{
-    const profile=exerciseProfile(name,range);
+    const profile=exerciseProfile(name,range),intel=exerciseIntelligence(name,range);
     if(profile.status==='plateau')return {title:profile.label,text:'Ajoutez d’abord 1 répétition avec la même charge avant toute hausse de poids.',tone:'warn'};
     if(profile.status==='progress')return {title:'📈 Progression confirmée',text:'La performance évolue : augmentez seulement en haut de fourchette avec RIR suffisant.',tone:'good'};
     return {title:'🎯 Construire la performance',text:'Priorité aux répétitions propres avec environ 2 RIR.',tone:'good'};
