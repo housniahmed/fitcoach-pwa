@@ -187,6 +187,11 @@
       const prev=route.sets.find(s=>s.exerciseId===ex[0]&&s.index===idx),rec={exerciseId:ex[0],index:idx,kg,reps,rir,done:true};
       if(prev)Object.assign(prev,rec);else route.sets.push(rec);set.classList.add('checked');set.textContent='✓';saveDraft();
       const f=evaluateSet(rec,range);let box=row.querySelector('.set-feedback');if(box)box.remove();box=document.createElement('div');box.className='set-feedback '+f.tone;box.innerHTML='<b>'+f.title+'</b><span>'+f.text+'</span>';row.appendChild(box);
+      const nextRow=row.nextElementSibling;if(nextRow){
+        const nextIndex=idx+1,nextTarget=targetForSet(ex[1],nextIndex,range,getLastSets(ex[1]),route.sets),targetEl=nextRow.querySelector('.set-target'),kgInput=nextRow.querySelector('[data-kg]');
+        if(targetEl)targetEl.textContent='Cible : '+(nextTarget.kg?nextTarget.kg+' kg':'à définir')+' · '+nextTarget.reps+' reps · RIR '+nextTarget.rir;
+        if(kgInput&&!kgInput.value&&nextTarget.kg)kgInput.value=nextTarget.kg;
+      }
       if(Number(rir)<2)startTimer(90);
     }
   });
