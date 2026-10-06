@@ -44,4 +44,5 @@ Les données existantes restent dans le stockage local du navigateur. La V8 simp
 
 ## Déploiement
 
-Le dépôt peut être publié avec GitHub Pages : Settings → Pages → Deploy from branch → main → / (root).
+Le dépôt est publié avec GitHub Pages via le workflow GitHub Actions situé dans `.github/workflows/pages.yml`.
+
