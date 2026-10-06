@@ -230,6 +230,30 @@
       '<div class="prescription"><strong>'+setCount+' × '+range[0]+'–'+range[1]+' '+unit+'</strong><span>Repos recommandé · '+engine.rest+' s · RIR cible '+engine.rir+'</span>'+previousLine+'</div><div class="decision-engine"><b>🔁 Closed-Loop Coach · V7.3</b><span>'+engine.reason+'</span><small>Décision : '+engine.action+' · Confiance '+engine.confidence+'% · Résultat : '+feedback.status+'</small><em>'+feedback.text+'</em></div><div class="volume-advice '+decision.tone+'"><b>'+decision.label+'</b><span>'+decision.detail+'</span></div><div class="coach-decision '+coach.tone+'"><b>'+coach.title+'</b><span>'+coach.text+'</span></div>'+
       '<div class="setlist">'+rows+'</div><div class="actions"><button class="secondary" data-action="rest">⏱ Repos 90 s</button><button class="primary" data-action="next">'+(route.index===total-1?'Terminer la séance':'Exercice suivant →')+'</button></div></section>');
   }
+  const weeklyPlanner=()=>{
+    const recovery=recoveryScore(), adaptive=adaptiveDecision();
+    const first=nextSession(), second=first==='A'?'B':first==='B'?'C':'A', third=second==='A'?'B':second==='B'?'C':'A';
+    const order=[first,second,third];
+    const sessions=order.map((key)=>{
+      const plan=PLAN[key];
+      const exercises=plan.exercises.map(ex=>{
+        const range=RANGES[ex[0]]||[ex[3],ex[3]], decision=coachDecisionEngine(ex[1],range,ex), intel=exerciseIntelligence(ex[1],range), profile=exerciseProfile(ex[1],range);
+        let priority='normal',priorityText='Consolider';
+        if(profile.status==='recovery-plateau'){priority='recover';priorityText='Récupérer';}
+        else if(profile.status==='technical-plateau'){priority='plateau';priorityText='+1 rep';}
+        else if(profile.status==='progress'){priority='progress';priorityText=(intel.speed>0.5&&intel.confidence>=55)?'Progression prudente':'Progresser';}
+        return {id:ex[0],name:ex[1],sets:decision.sets,kg:decision.kg,reps:decision.reps,rir:decision.rir,rest:decision.rest,action:decision.action,priority,priorityText,confidence:decision.confidence};
+      });
+      const hard=exercises.filter(x=>x.priority==='recover'||x.priority==='plateau').length, progressing=exercises.filter(x=>x.priority==='progress').length;
+      const objective=adaptive.mode==='deload'?'Récupérer et maintenir la technique':adaptive.mode==='reduced'?'Consolider avec un volume réduit':hard>=2?'Débloquer les exercices prioritaires':progressing>=3?'Faire progresser les mouvements forts':'Consolider la double progression';
+      return {key,name:plan.name,focus:plan.focus,objective,exercises};
+    });
+    const all=sessions.flatMap(s=>s.exercises), priorityCount=all.filter(x=>x.priority==='plateau'||x.priority==='recover').length;
+    const objective=adaptive.mode==='deload'?'Semaine de récupération active':adaptive.mode==='reduced'?'Semaine de consolidation':priorityCount>=3?'Semaine de résolution des plateaux':recovery.score>=75?'Semaine de progression contrôlée':'Semaine de maintien intelligent';
+    const detail=adaptive.mode==='deload'?'Réduire la demande, garder 3 RIR et privilégier la qualité.':adaptive.mode==='reduced'?'Conserver les charges maîtrisées et éviter les séries supplémentaires.':priorityCount>=3?'Gagner des répétitions propres avant toute hausse de charge.':recovery.score>=75?'Profiter de la récupération pour progresser uniquement en haut de fourchette.':'Maintenir les performances et attendre de meilleurs signaux de récupération.';
+    return {recovery,adaptive,sessions,objective,detail};
+  };
+
   function progress(){
     const totalVol=state.history.reduce((sum,h)=>sum+(h.volume||0),0);
     const totalTime=state.history.reduce((a,h)=>a+(h.duration||0),0);
@@ -248,6 +272,8 @@
     const next=PLAN[nextSession()]; const recovery=recoveryScore(); const decision=adaptiveDecision(); const adaptiveProfiles=Object.entries(RANGES).map(([id,r])=>{const ex=Object.values(PLAN).flatMap(p=>p.exercises).find(x=>x[0]===id);return ex?{name:ex[1],profile:exerciseProfile(ex[1],r),intel:exerciseIntelligence(ex[1],r)}:null}).filter(Boolean); const plateauCount=adaptiveProfiles.filter(x=>x.profile.status==='plateau').length; const intelligenceCount=adaptiveProfiles.filter(x=>x.intel.exposures>=2).length; const bestProgressors=adaptiveProfiles.filter(x=>x.intel.e1rm>0).sort((a,b)=>b.intel.speed-a.intel.speed).slice(0,3);
     layout(`<section class="hero compact"><div class="eyebrow">FITCOACH V7 · ADAPTIVE COACH ENGINE</div><h1>Votre progression<br><span>en un coup d’œil.</span></h1><p>Le Live Coach ajuste vos cibles en temps réel, estime la fatigue et transforme chaque séance en nouvelle donnée de progression.</p><section class="recovery-mini ${recovery.tone}"><b>${recovery.label}</b><span>${recovery.score}/100 · ${recovery.action}</span></section><section class="adaptive-mini ${decision.tone} "><b>${decision.label}</b><span>${decision.detail}</span></section></section>
       <section class="coach-dashboard"><div><div class="eyebrow">🎯 RECOMMANDATION</div><h2>${next.name}</h2><p>${next.focus}</p></div><button data-session="${nextSession()}">Démarrer →</button></section>
+      ${(()=>{const wp=weeklyPlanner();return '<section class="weekly-planner"><div class="section-title"><h2>🗓️ Adaptive Weekly Planner · V7.5</h2><span>'+wp.objective+'</span></div><div class="planner-summary '+wp.adaptive.tone+'"><div><b>'+wp.objective+'</b><span>Récupération · '+wp.recovery.score+'/100</span></div><p>'+wp.detail+'</p></div><div class="planner-sessions">'+wp.sessions.map((s,i)=>'<article class="planner-session"><div class="planner-head"><div><span>SÉANCE '+(i+1)+' · '+s.key+'</span><h3>'+s.name+'</h3><small>'+esc(s.focus)+'</small></div><button data-session="'+s.key+'">Démarrer</button></div><div class="planner-objective"><b>Objectif</b><span>'+esc(s.objective)+'</span></div><div class="planner-exercises">'+s.exercises.map(x=>'<div><b>'+esc(x.name)+'</b><span>'+x.sets+'×'+x.reps+' · RIR '+x.rir+(x.kg?' · '+x.kg+' kg':' · charge à définir')+'</span><em class="'+x.priority+'">'+x.priorityText+'</em></div>').join('')+'</div></article>').join('')+'</div></section>'})()}
+
       <div class="grid stats"><div><b>${state.history.length}</b><small>séances</small></div><div><b>${Math.round(totalVol/100)/10}k</b><small>kg volume</small></div><div><b>${fmtMin(totalTime)}</b><small>temps total</small></div></div>
       <section><div class="section-title"><h2>Adaptive Coach · V7</h2><span>${plateauCount} plateau${plateauCount>1?"s":""}</span></div><div class="adaptive-summary"><div><b>🤖</b><span>Profils analysés</span><strong>${adaptiveProfiles.length}</strong></div><div><b>📈</b><span>En progression</span><strong>${progressing}</strong></div><div><b>🟠</b><span>Plateaux</span><strong>${plateauCount}</strong></div></div></section>
       <section><div class="section-title"><h2>Progression Intelligence · V7.1</h2><span>${intelligenceCount} profils</span></div><div class="intel-grid">${bestProgressors.map(x=>'<div><b>'+esc(x.name)+'</b><strong>'+x.intel.e1rm+' kg</strong><small>e1RM · '+(x.intel.speed>0?'+':'')+x.intel.speed+'% / sem.</small><em>Confiance '+x.intel.confidence+'%</em></div>').join('')||'<div class="empty">Les tendances apparaîtront après plusieurs séances.</div>'}</div></section>
