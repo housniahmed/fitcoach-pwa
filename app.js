@@ -59,6 +59,26 @@
     if(reps>=range[1]&&(!Number.isFinite(rir)||rir>=2))return {tone:'good',title:'✓ Série validée',text:'Haut de fourchette atteint avec une marge suffisante : +1 palier possible à la prochaine série.'};
     return {tone:'good',title:'✓ Bonne série',text:'Gardez la charge et essayez d’ajouter 1 répétition sur la prochaine série.'};
   };
+  const fatigueScore=(sets)=>{
+    const done=sets.filter(s=>s.done&&Number(s.reps)>0); if(!done.length)return 0;
+    const effort=done.map(s=>{const r=Number(s.rir);return Number.isFinite(r)?Math.max(0,Math.min(100,(3-r)*30)):0;});
+    const drop=done.length>=2&&Number(done[0].reps)>0?Math.max(0,Math.min(100,(1-Number(done.at(-1).reps)/Number(done[0].reps))*100)):0;
+    return Math.round(Math.min(100,effort.reduce((a,b)=>a+b,0)/effort.length*.65+drop*.35));
+  };
+  const liveState=(sets,range)=>{
+    const done=sets.filter(s=>s.done&&Number(s.reps)>0),fatigue=fatigueScore(sets);
+    if(!done.length)return {label:'Prêt',tone:'neutral',text:'Démarrez avec une marge confortable. Le coach observe vos premières séries.'};
+    const last=done.at(-1),rir=Number(last.rir),reps=Number(last.reps)||0;
+    if(rir<1||fatigue>=75)return {label:'⚠️ Fatigue élevée',tone:'warn',text:'Conservez la charge ou arrêtez la série si la technique se dégrade. La priorité est la qualité.'};
+    if(fatigue>=50||rir<2)return {label:'🟡 Fatigue modérée',tone:'warn',text:'Pas de progression de charge maintenant. Prenez le repos complet et maintenez une technique stricte.'};
+    if(reps>=range[1]&&rir>=2)return {label:'🟢 Performance forte',tone:'good',text:'Zone favorable : utilisez le palier prévu à la prochaine série.'};
+    return {label:'🟢 Rythme maîtrisé',tone:'good',text:'Continuez sur la même charge et cherchez une répétition propre supplémentaire.'};
+  };
+  const sessionRpe=(sets)=>{
+    const done=sets.filter(s=>s.done&&Number(s.rir)>=0); if(!done.length)return 0;
+    const avgRir=done.reduce((a,s)=>a+Number(s.rir),0)/done.length;
+    return Math.max(1,Math.min(10,Math.round((10-avgRir)*10)/10));
+  };
 
   const recommend=(previousSets,target,range)=>{if(!previousSets.length)return 'Commencez léger et gardez environ 3 RIR. Priorité à la technique.';const valid=previousSets.filter(s=>Number(s.reps)>0);if(!valid.length)return 'Commencez léger et construisez une première référence.';const allTop=valid.length>=3&&valid.every(s=>Number(s.reps)>=range[1]);const allSafe=valid.every(s=>Number(s.rir)>=2);const avgKg=valid.reduce((a,s)=>a+(Number(s.kg)||0),0)/valid.length;const avgRir=valid.reduce((a,s)=>a+(Number(s.rir)||0),0)/valid.length;const load=avgKg?Math.round(avgKg*10)/10:0;if(allTop&&allSafe&&load){const step=load>=20?2.5:load>=10?1.25:0.5;return `Progression : ${load+step} kg × ${range[0]}–${range[1]} reps. La dernière séance était complète avec environ ${Math.round(avgRir*10)/10} RIR moyen.`;}if(valid.some(s=>Number(s.rir)<2)){return `Conservez ${load?load+' kg':'la même charge'} et visez ${range[0]}–${range[1]} reps. Ne montez pas la charge tant que le RIR moyen reste sous 2.`;}const best=Math.max(...valid.map(s=>Number(s.reps)||0));return `Conservez ${load?load+' kg':'la même charge'} et essayez d'atteindre ${Math.min(range[1],best+1)} reps sur les séries avec une technique propre.`;};
   const weeklyCount=()=>{const d=new Date(),day=d.getDay()||7; const m=new Date(d);m.setDate(d.getDate()-day+1);m.setHours(0,0,0,0);return state.history.filter(h=>new Date(h.date)>=m).length;};
@@ -108,7 +128,7 @@
     const p=PLAN[route.session]; if(!p){choose();return;}
     const ex=p.exercises[route.index],previous=getLast(ex[1]),previousSets=getLastSets(ex[1]);
     const range=RANGES[ex[0]]||[ex[3],ex[3]],saved=route.sets.filter(s=>s.exerciseId===ex[0]),total=p.exercises.length;
-    const preview=targetForSet(ex[1],saved.length,range,previousSets,saved),targetLoad=preview.kg?preview.kg+' kg':'Charge à définir',unit=ex[0]==='plank'?'secondes':'reps';
+    const preview=targetForSet(ex[1],saved.length,range,previousSets,saved),targetLoad=preview.kg?preview.kg+' kg':'Charge à définir',unit=ex[0]==='plank'?'secondes':'reps'; const live=liveState(saved,range),fatigue=fatigueScore(saved);
     const previousLine=previous?'<small>Dernière séance : '+previous.kg+' kg × '+previous.reps+' reps · RIR '+(previous.rir||'—')+'</small>':'<small>Première séance enregistrée : construisez votre référence.</small>';
     const rows=Array.from({length:ex[2]},(_,i)=>{
       const s=saved[i],t=targetForSet(ex[1],i,range,previousSets,saved),kg=s?.kg??(t.kg||''),reps=s?.reps??t.reps,rir=s?.rir??t.rir,feedback=s?.done?evaluateSet(s,range):null;
@@ -119,7 +139,7 @@
       '<section class="exercise"><div class="illustration"><img src="assets/illustrations/'+ex[0]+'.svg" alt="Illustration '+ex[1]+'" loading="eager"></div>'+
       '<div class="tag">EXERCICE '+(route.index+1)+' · SMART MODE</div><h1>'+ex[1]+'</h1><p class="muscles">'+ex[4]+'</p>'+
       '<div class="cue"><b>Technique</b><span>'+ex[5]+'</span></div>'+
-      '<div class="coach-tip smart-tip"><b>🤖 Coach V6 · cible de départ</b><span>'+targetLoad+' × '+range[0]+'–'+range[1]+' '+unit+' · RIR cible '+preview.rir+'</span><small>La cible s’adapte après chaque série selon vos reps et votre RIR.</small></div>'+
+      '<div class="coach-tip smart-tip"><b>🤖 Coach V6.1 · Live Coach</b><span>'+targetLoad+' × '+range[0]+'–'+range[1]+' '+unit+' · RIR cible '+preview.rir+'</span><small>La cible s’adapte après chaque série selon vos reps et votre RIR.</small></div><div class="live-status ' + live.tone + '"><b>' + live.label + '</b><span>' + live.text + '</span><em>Fatigue estimée · ' + fatigue + '%</em></div>'+
       '<div class="prescription"><strong>'+ex[2]+' × '+range[0]+'–'+range[1]+' '+unit+'</strong><span>Repos recommandé · 90 s · RIR cible 2</span>'+previousLine+'</div>'+
       '<div class="setlist">'+rows+'</div><div class="actions"><button class="secondary" data-action="rest">⏱ Repos 90 s</button><button class="primary" data-action="next">'+(route.index===total-1?'Terminer la séance':'Exercice suivant →')+'</button></div></section>');
   }
@@ -139,7 +159,7 @@
     const consistency=Math.min(100,Math.round(state.history.length/Math.max(1,Math.ceil((Date.now()-new Date(state.history[0]?.date||Date.now()))/(7*86400000)))*100/3));
     const badges=[];if(state.history.length>=1)badges.push('🏁 Première séance');if(state.history.length>=10)badges.push('💪 10 séances');if(totalVol>=10000)badges.push('🏋️ 10 000 kg');if(calcStreak()>=4)badges.push('🔥 4 semaines');if(progressing>=3)badges.push('📈 En progression');
     const next=PLAN[nextSession()];
-    layout(`<section class="hero compact"><div class="eyebrow">FITCOACH V6 · SMART COACHING</div><h1>Votre progression<br><span>en un coup d’œil.</span></h1><p>Le coach adapte vos cibles série après série et utilise vos performances réelles pour guider la prochaine étape.</p></section>
+    layout(`<section class="hero compact"><div class="eyebrow">FITCOACH V6.1 · LIVE COACHING</div><h1>Votre progression<br><span>en un coup d’œil.</span></h1><p>Le Live Coach ajuste vos cibles en temps réel, estime la fatigue et transforme chaque séance en nouvelle donnée de progression.</p></section>
       <section class="coach-dashboard"><div><div class="eyebrow">🎯 RECOMMANDATION</div><h2>${next.name}</h2><p>${next.focus}</p></div><button data-session="${nextSession()}">Démarrer →</button></section>
       <div class="grid stats"><div><b>${state.history.length}</b><small>séances</small></div><div><b>${Math.round(totalVol/100)/10}k</b><small>kg volume</small></div><div><b>${fmtMin(totalTime)}</b><small>temps total</small></div></div>
       <section><div class="section-title"><h2>État de progression</h2><span>${progressing} en hausse</span></div><div class="status-grid"><div><b>📈 ${progressing}</b><small>progressent</small></div><div><b>⏸ ${stagnant}</b><small>stables</small></div><div><b>📉 ${declining}</b><small>à surveiller</small></div></div></section>
@@ -167,10 +187,10 @@
     const p=PLAN[route.session];
     const exercises=[]; let volume=0;
     route.sets.filter(s=>s.done).forEach(s=>{const e=p.exercises.find(x=>x[0]===s.exerciseId); const v=(Number(s.kg)||0)*(Number(s.reps)||0); volume+=v; exercises.push({name:e[1],kg:Number(s.kg)||0,reps:Number(s.reps)||0,rir:Number(s.rir)||0,set:s.index+1});});
-    const duration=Math.max(1,Math.round((Date.now()-workoutStart)/1000));
-    state.history.push({date:new Date().toISOString(),name:p.name,duration,volume,exercises: p.exercises.map(e=>{const sets=route.sets.filter(s=>s.exerciseId===e[0]&&s.done).map(s=>({kg:Number(s.kg)||0,reps:Number(s.reps)||0,rir:Number(s.rir)||0,set:s.index+1}));return {name:e[1],kg:sets.length?sets[sets.length-1].kg:0,reps:sets.length?sets[sets.length-1].reps:0,rir:sets.length?sets[sets.length-1].rir:0,sets};}).filter(e=>e.sets.length)});save();localStorage.removeItem(DRAFT);
+    const duration=Math.max(1,Math.round((Date.now()-workoutStart)/1000)); const sessionRpeValue=sessionRpe(route.sets),sessionFatigue=fatigueScore(route.sets);
+    state.history.push({date:new Date().toISOString(),name:p.name,duration,volume,sessionRpe:sessionRpeValue,fatigue:sessionFatigue,exercises: p.exercises.map(e=>{const sets=route.sets.filter(s=>s.exerciseId===e[0]&&s.done).map(s=>({kg:Number(s.kg)||0,reps:Number(s.reps)||0,rir:Number(s.rir)||0,set:s.index+1}));return {name:e[1],kg:sets.length?sets[sets.length-1].kg:0,reps:sets.length?sets[sets.length-1].reps:0,rir:sets.length?sets[sets.length-1].rir:0,sets};}).filter(e=>e.sets.length)});save();localStorage.removeItem(DRAFT);
     route.page='home';route.session=null;route.index=0;route.sets=[];
-    layout(`<section class="done-screen"><div class="trophy">🏆</div><div class="eyebrow">SÉANCE TERMINÉE</div><h1>Excellent travail<br><span>Continuez ainsi.</span></h1><div class="done-grid"><div><b>${Math.round(duration/60)} min</b><small>durée</small></div><div><b>${Math.round(volume)} kg</b><small>volume</small></div><div><b>${exercises.length}</b><small>séries validées</small></div></div><p>La régularité bat la perfection. Revenez à votre prochaine séance.</p><button class="primary" data-nav="progress">Voir ma progression →</button></section>`);
+    layout(`<section class="done-screen"><div class="trophy">🏆</div><div class="eyebrow">SÉANCE TERMINÉE</div><h1>Excellent travail<br><span>Continuez ainsi.</span></h1><div class="done-grid"><div><b>${Math.round(duration/60)} min</b><small>durée</small></div><div><b>${Math.round(volume)} kg</b><small>volume</small></div><div><b>${exercises.length}</b><small>séries validées</small></div><div><b>${sessionRpeValue}/10</b><small>RPE</small></div><div><b>${sessionFatigue}%</b><small>fatigue</small></div></div><p>La régularité bat la perfection. Revenez à votre prochaine séance.</p><button class="primary" data-nav="progress">Voir ma progression →</button></section>`);
   }
 
   document.addEventListener('submit',e=>{if(e.target.id==='weightForm'){e.preventDefault();const kg=Number(document.getElementById('weightInput').value);if(!Number.isFinite(kg)||kg<20||kg>350)return;state.weight=kg;state.weights.push({date:new Date().toISOString(),kg});save();progress();}});
