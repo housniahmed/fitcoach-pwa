@@ -134,6 +134,20 @@
     return {e1rm:last.e,speed,confidence,exposures:history.length,status,reason,recommendation};
   };
   const progressionRecommendation=(name,range)=>{const intel=exerciseIntelligence(name,range);if(intel.status==='recovery-plateau')return {action:'Récupérer',tone:'warn',text:intel.recommendation};if(intel.status==='technical-plateau')return {action:'+1 rep',tone:'warn',text:intel.recommendation};if(intel.status==='progress'&&intel.speed>0.5)return {action:'Double progression',tone:'good',text:intel.recommendation};if(intel.status==='progress')return {action:'Maintenir la trajectoire',tone:'good',text:intel.recommendation};return {action:'Construire la référence',tone:'neutral',text:intel.recommendation};};
+  const coachDecisionEngine=(name,range,exercise)=>{
+    const intel=exerciseIntelligence(name,range),recovery=recoveryScore(),adaptive=adaptiveDecision(),previous=getLastSets(name);
+    const baseSets=Number(exercise?.[2])||3;
+    let sets=plannedSets(exercise),rir=2,rest=90,action='maintain',reason='Données insuffisantes : construire une référence.';
+    let kg=previous.length?Number(previous[0].kg)||0:0;
+    let reps=range[0];
+    if(adaptive.mode==='deload'){sets=Math.max(1,Math.round(baseSets*.65));rir=3;rest=120;action='deload';reason='Fatigue répétée : réduire le volume et garder une marge confortable.'}
+    else if(intel.status==='recovery-plateau'){rir=3;rest=120;action='recover';reason='Plateau associé à une récupération insuffisante.'}
+    else if(intel.status==='technical-plateau'){rir=2;action='rep';reason='Plateau de performance : gagner des répétitions avant d’ajouter du poids.'}
+    else if(intel.status==='progress'){action='progress';reason=intel.speed>0.5?'Progression rapide : conserver une hausse prudente.':'Progression régulière : poursuivre la double progression.'}
+    else if(recovery.score>=65){action='build';reason='Récupération favorable : construire progressivement la performance.'}
+    if(previous.length){const valid=previous.filter(x=>Number(x.reps)>0),best=Math.max(...valid.map(x=>Number(x.reps)||0));if(valid.length>=3&&best>=range[1]&&valid.every(x=>Number(x.rir)>=2)&&action==='progress'){kg=roundLoad((Number(valid.at(-1).kg)||kg)+loadStep(Number(valid.at(-1).kg)||kg));}else if(valid.length)kg=Number(valid.at(-1).kg)||kg;reps=action==='rep'?Math.min(range[1],best+1):range[0];}
+    return {kg,reps,rir,sets,rest,action,reason,confidence:intel.confidence,e1rm:intel.e1rm};
+  };
   const adaptiveTarget=(name,setIndex,range,previousSets,currentSets)=>{
     const base=targetForSet(name,setIndex,range,previousSets,currentSets);
     if(adaptiveDecision().mode==='deload')return {...base,reps:range[0],rir:3};
