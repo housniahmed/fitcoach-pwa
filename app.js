@@ -159,21 +159,80 @@
     if(status==='true-plateau')recommendation='Conserver la technique puis modifier légèrement le stimulus ou la cible de reps.';
     return {status,label:status==='progress'?'🟢 Progression':status==='fatigue-plateau'?'🔴 Plateau récupération':status==='execution-plateau'?'🟠 Plateau technique':status==='true-plateau'?'🟣 Plateau performance':'🟡 Stable',tone:status==='progress'?'good':status==='stable'?'warn':'warn',confidence,exposures:sessions.length,e1rm:lastE1rm,e1rmTrend,repTrend,rirTrend,quality,plateauType,action,reason,recommendation,loadProgress};
   };
+  const exerciseStrategy=(name,range,exercise,liveSets=[])=>{
+    const intel=exerciseIntelligence2(name,range);
+    const recovery=recoveryScore();
+    const adaptive=adaptiveDecision();
+    const previous=getLastSets(name);
+    const done=(liveSets||[]).filter(s=>s.done&&Number(s.reps)>0);
+    const latest=done.at(-1);
+    const recent=previous.filter(s=>Number(s.reps)>0);
+    let key='reps',label='Gagner des reps',reason='La variable la plus informative est actuellement la qualité des répétitions.',confidence=intel.confidence||0;
+    if(adaptive.mode==='deload'){
+      key='local-deload';label='Alléger localement';reason='La récupération globale impose de réduire la demande sur cet exercice.';confidence=Math.max(confidence,70);
+    }else if(intel.status==='fatigue-plateau'){
+      key='recovery';label='Récupérer';reason='Le plateau apparaît avec un effort élevé : ne changez pas la charge, augmentez la marge et le repos.';confidence=Math.max(confidence,70);
+    }else if(intel.status==='execution-plateau'){
+      key='quality';label='Gagner en qualité';reason='La performance stagne avec une qualité insuffisante : priorité au contrôle, à l’amplitude et aux reps propres.';confidence=Math.max(confidence,65);
+    }else if(intel.status==='true-plateau'){
+      key='stimulus';label='Changer le stimulus';reason='La performance est stable malgré une exécution maîtrisée : un changement léger de stimulus est préférable à une hausse de charge automatique.';confidence=Math.max(confidence,65);
+    }else if(intel.status==='progress' && recovery.score>=65){
+      key='load';label='Progresser en charge';reason='La tendance est positive : la charge peut progresser uniquement quand la fourchette haute et le RIR le permettent.';confidence=Math.max(confidence,70);
+    }else if(recovery.score<65){
+      key='rest';label='Renforcer le repos';reason='La récupération est moyenne : conserver la demande et augmenter le repos avant de modifier la charge.';confidence=Math.max(confidence,65);
+    }else if(recent.length>=3 && recent.every(s=>Number(s.reps)>=range[1]&&Number(s.rir)>=2)){
+      key='load';label='Progresser en charge';reason='Les dernières séries atteignent le haut de fourchette avec une marge suffisante.';confidence=Math.max(confidence,75);
+    }
+    if(latest && Number(latest.rir)<2 && key==='load'){
+      key='rest';label='Renforcer le repos';reason='La dernière série était trop proche de l’échec : la progression de charge est reportée.';confidence=Math.max(confidence,70);
+    }
+    const oneVariable={
+      'load':'Charge',
+      'reps':'Répétitions',
+      'quality':'Qualité technique',
+      'recovery':'RIR / récupération',
+      'rest':'Repos',
+      'stimulus':'Stimulus',
+      'local-deload':'Volume'
+    }[key];
+    return {key,label,reason,confidence,variable:oneVariable,sourceStatus:intel.status,plateauType:intel.plateauType||'none',
+      instruction:key==='load'?'Ajouter un seul palier si toutes les séries restent propres et RIR ≥ 2.':
+        key==='reps'?'Garder la charge et ajouter 1 répétition propre, sans modifier le reste.':
+        key==='quality'?'Garder la charge et améliorer amplitude, contrôle et trajectoire.':
+        key==='recovery'?'Garder ou réduire légèrement la charge, viser RIR 3 et prendre le repos complet.':
+        key==='rest'?'Conserver la charge et augmenter le repos avant la prochaine série.':
+        key==='stimulus'?'Conserver la technique et modifier légèrement le stimulus à la prochaine exposition.':
+        'Réduire localement le volume et garder une marge confortable.'};
+  };
   const progressionRecommendation=(name,range)=>{const intel=exerciseIntelligence(name,range);if(intel.status==='recovery-plateau')return {action:'Récupérer',tone:'warn',text:intel.recommendation};if(intel.status==='technical-plateau')return {action:'+1 rep',tone:'warn',text:intel.recommendation};if(intel.status==='progress'&&intel.speed>0.5)return {action:'Double progression',tone:'good',text:intel.recommendation};if(intel.status==='progress')return {action:'Maintenir la trajectoire',tone:'good',text:intel.recommendation};return {action:'Construire la référence',tone:'neutral',text:intel.recommendation};};
   const coachDecisionEngine=(name,range,exercise,liveSets=[])=>{
     const intel=exerciseIntelligence(name,range),recovery=recoveryScore(),adaptive=adaptiveDecision(),previous=getLastSets(name),liveFatigue=fatigueScore(liveSets||[]);
+    const strategy=exerciseStrategy(name,range,exercise,liveSets);
     const baseSets=Number(exercise?.[2])||3;
-    let sets=plannedSets(exercise),rir=2,rest=90,action='maintain',reason='Données insuffisantes : construire une référence.';
+    let sets=plannedSets(exercise),rir=2,rest=90,action=strategy.key,reason=strategy.reason;
     let kg=previous.length?Number(previous[0].kg)||0:0;
     let reps=range[0];
-    if(adaptive.mode==='deload'){sets=Math.max(1,Math.round(baseSets*.65));rir=3;rest=120;action='deload';reason='Fatigue répétée : réduire le volume et garder une marge confortable.'}
-    else if(intel.status==='recovery-plateau'){rir=3;rest=120;action='recover';reason='Plateau associé à une récupération insuffisante.'}
-    else if(intel.status==='technical-plateau'){rir=2;action='rep';reason='Plateau de performance : gagner des répétitions avant d’ajouter du poids.'}
-    else if(intel.status==='progress'){action='progress';reason=intel.speed>0.5?'Progression rapide : conserver une hausse prudente.':'Progression régulière : poursuivre la double progression.'}
-    else if(recovery.score>=65){action='build';reason='Récupération favorable : construire progressivement la performance.'}
-    if(previous.length){const valid=previous.filter(x=>Number(x.reps)>0),best=Math.max(...valid.map(x=>Number(x.reps)||0));if(valid.length>=3&&best>=range[1]&&valid.every(x=>Number(x.rir)>=2)&&action==='progress'){kg=roundLoad((Number(valid.at(-1).kg)||kg)+loadStep(Number(valid.at(-1).kg)||kg));}else if(valid.length)kg=Number(valid.at(-1).kg)||kg;reps=action==='rep'?Math.min(range[1],best+1):range[0];}
-    if(liveFatigue>=75&&action!=='deload'){sets=Math.max(1,sets-1);rir=Math.max(2,rir+1);rest=Math.max(120,rest);action='live-recover';reason='Fatigue élevée pendant la séance : réduire immédiatement la demande suivante.';}
-    return {kg,reps,rir,sets,rest,action,reason,confidence:intel.confidence,e1rm:intel.e1rm};
+    if(strategy.key==='local-deload'){sets=Math.max(1,Math.round(baseSets*.65));rir=3;rest=120;}
+    else if(strategy.key==='recovery'){rir=3;rest=120;}
+    else if(strategy.key==='quality'){rir=2;rest=90;}
+    else if(strategy.key==='stimulus'){rir=2;rest=120;reps=Math.min(range[1],Math.max(range[0],range[0]+1));}
+    else if(strategy.key==='rest'){rest=120;}
+    else if(strategy.key==='load'){action='load';}
+    else if(strategy.key==='reps'){action='reps';}
+    if(previous.length){
+      const valid=previous.filter(x=>Number(x.reps)>0);
+      const best=valid.length?Math.max(...valid.map(x=>Number(x.reps)||0)):0;
+      if(valid.length)kg=Number(valid.at(-1).kg)||kg;
+      if(strategy.key==='load'&&valid.length>=3&&best>=range[1]&&valid.every(x=>Number(x.rir)>=2)){
+        kg=roundLoad((Number(valid.at(-1).kg)||kg)+loadStep(Number(valid.at(-1).kg)||kg));
+      }
+      if(strategy.key==='reps')reps=Math.min(range[1],best+1);
+      else if(strategy.key!=='stimulus')reps=range[0];
+    }
+    if(liveFatigue>=75&&strategy.key!=='local-deload'){
+      sets=Math.max(1,sets-1);rir=Math.max(2,rir+1);rest=Math.max(120,rest);action='live-recover';reason='Fatigue élevée pendant la séance : réduire immédiatement la demande suivante.';
+    }
+    return {kg,reps,rir,sets,rest,action,reason,confidence:strategy.confidence||intel.confidence,e1rm:intel.e1rm,strategy};
   };
   const closedLoopEvaluation=(decision,sets,range)=>{const done=(sets||[]).filter(s=>s.done&&Number(s.reps)>0);if(!done.length)return {status:'pending',action:'observe',text:'Aucune série validée : le coach attend votre résultat.'};const avgReps=done.reduce((a,s)=>a+Number(s.reps),0)/done.length,avgRir=done.reduce((a,s)=>a+(Number(s.rir)||0),0)/done.length,avgKg=done.reduce((a,s)=>a+(Number(s.kg)||0),0)/done.length,fatigue=fatigueScore(done);let status='on-target',action='maintain',text='Exécution alignée avec la décision du coach.';if(fatigue>=75||avgRir<Math.max(1,decision.rir-1)){status='too-hard';action='reduce';text='La réalité est plus exigeante que prévu : prochaine cible allégée et repos renforcé.';}else if(avgReps>=range[1]&&avgRir>=2){status='too-easy';action='progress';text='La cible était conservatrice : progression possible à la prochaine exposition.';}else if(avgReps<range[0]&&avgRir>=2){status='under-target';action='reps';text='La charge semble maîtrisée mais les répétitions restent basses : construire les reps avant le poids.';}return {status,action,text,avgReps:Math.round(avgReps*10)/10,avgRir:Math.round(avgRir*10)/10,avgKg:Math.round(avgKg*10)/10,fatigue};};
   const sessionIntelligence=(sessionExercises,sessionSets,sessionRpeValue,sessionFatigue)=>{const items=(sessionExercises||[]).map(e=>{const sets=(sessionSets||[]).filter(s=>s.exerciseId===e[0]&&s.done&&Number(s.reps)>0),range=RANGES[e[0]]||[e[3],e[3]];if(!sets.length)return {name:e[1],status:'missing',score:0,sets:0,action:'Compléter'};const avgRir=sets.reduce((a,s)=>a+(Number(s.rir)||0),0)/sets.length,avgReps=sets.reduce((a,s)=>a+Number(s.reps),0)/sets.length,top=sets.filter(s=>Number(s.reps)>=range[1]&&Number(s.rir)>=2).length,feedback=closedLoopEvaluation({rir:2},sets,range);let score=Math.round(Math.min(100,(top/sets.length)*40+Math.min(100,avgRir/3*35)+Math.min(100,avgReps/range[1]*25)));if(feedback.status==='too-hard')score=Math.max(0,score-20);let status=score>=80?'excellent':score>=60?'good':score>=40?'attention':'hard';let action=feedback.action==='progress'?'Augmenter prudemment':feedback.action==='reduce'?'Réduire / récupérer':feedback.action==='reps'?'Gagner des reps':'Maintenir';return {name:e[1],status,score,sets:sets.length,avgReps:Math.round(avgReps*10)/10,avgRir:Math.round(avgRir*10)/10,action};});const valid=items.filter(x=>x.sets);const quality=valid.length?Math.round(valid.reduce((a,x)=>a+x.score,0)/valid.length):0;const hard=valid.filter(x=>x.status==='hard').sort((a,b)=>a.score-b.score).slice(0,2),strong=valid.filter(x=>x.status==='excellent').sort((a,b)=>b.score-a.score).slice(0,2);const verdict=quality>=80?'Séance très solide':quality>=65?'Séance productive':quality>=50?'Séance correcte, à optimiser':'Séance à alléger';const next=quality>=80&&sessionFatigue<60?'Poursuivre la progression':sessionFatigue>=70||sessionRpeValue>=8?'Priorité récupération':quality<55?'Réduire la demande sur les exercices difficiles':'Maintenir et consolider';return {quality,verdict,next,items,strong,hard};};
@@ -253,7 +312,7 @@
       '<div class="tag">EXERCICE '+(route.index+1)+' · SMART MODE</div><h1>'+ex[1]+'</h1><p class="muscles">'+ex[4]+'</p>'+
       '<div class="cue"><b>Technique</b><span>'+ex[5]+'</span></div>'+
       '<div class="coach-tip smart-tip"><b>🤖 Coach V7.1 · Live Coach</b><span>'+targetLoad+' × '+range[0]+'–'+range[1]+' '+unit+' · RIR cible '+preview.rir+'</span><small>La cible s’adapte après chaque série selon vos reps et votre RIR.</small></div><div class="live-status '+live.tone+'"><b>'+live.label+'</b><span>'+live.text+'</span><em>Fatigue estimée · '+fatigue+'%</em></div>'+
-      '<div class="prescription"><strong>'+setCount+' × '+range[0]+'–'+range[1]+' '+unit+'</strong><span>Repos recommandé · '+engine.rest+' s · RIR cible '+engine.rir+'</span>'+previousLine+'</div><div class="decision-engine"><b>🔁 Closed-Loop Coach · V7.3</b><span>'+engine.reason+'</span><small>Décision : '+engine.action+' · Confiance '+engine.confidence+'% · Résultat : '+feedback.status+'</small><em>'+feedback.text+'</em></div><div class="volume-advice '+decision.tone+'"><b>'+decision.label+'</b><span>'+decision.detail+'</span></div><div class="coach-decision '+coach.tone+'"><b>'+coach.title+'</b><span>'+coach.text+'</span></div>'+
+      '<div class="prescription"><strong>'+setCount+' × '+range[0]+'–'+range[1]+' '+unit+'</strong><span>Repos recommandé · '+engine.rest+' s · RIR cible '+engine.rir+'</span>'+previousLine+'</div><div class="decision-engine"><b>🎯 Exercise Strategy Engine · V7.7</b><span>'+engine.strategy.label+' · '+engine.reason+'</span><small>Variable principale : '+engine.strategy.variable+' · Confiance '+engine.confidence+'% · Résultat : '+feedback.status+'</small><em>'+engine.strategy.instruction+'</em></div><div class="volume-advice '+decision.tone+'"><b>'+decision.label+'</b><span>'+decision.detail+'</span></div><div class="coach-decision '+coach.tone+'"><b>'+coach.title+'</b><span>'+coach.text+'</span></div>'+
       '<div class="setlist">'+rows+'</div><div class="actions"><button class="secondary" data-action="rest">⏱ Repos 90 s</button><button class="primary" data-action="next">'+(route.index===total-1?'Terminer la séance':'Exercice suivant →')+'</button></div></section>');
   }
   const weeklyPlanner=()=>{
@@ -263,12 +322,14 @@
     const sessions=order.map((key)=>{
       const plan=PLAN[key];
       const exercises=plan.exercises.map(ex=>{
-        const range=RANGES[ex[0]]||[ex[3],ex[3]], decision=coachDecisionEngine(ex[1],range,ex), intel=exerciseIntelligence2(ex[1],range), profile=exerciseProfile(ex[1],range);
+        const range=RANGES[ex[0]]||[ex[3],ex[3]], strategy=exerciseStrategy(ex[1],range,ex), decision=coachDecisionEngine(ex[1],range,ex), intel=exerciseIntelligence2(ex[1],range);
         let priority='normal',priorityText='Consolider';
-        if(profile.status==='recovery-plateau'){priority='recover';priorityText='Récupérer';}
-        else if(profile.status==='technical-plateau'){priority='plateau';priorityText='+1 rep';}
-        else if(profile.status==='progress'){priority='progress';priorityText=(intel.speed>0.5&&intel.confidence>=55)?'Progression prudente':'Progresser';}
-        return {id:ex[0],name:ex[1],sets:decision.sets,kg:decision.kg,reps:decision.reps,rir:decision.rir,rest:decision.rest,action:decision.action,priority,priorityText,confidence:decision.confidence};
+        if(strategy.key==='recovery'||strategy.key==='local-deload'){priority='recover';priorityText=strategy.label;}
+        else if(strategy.key==='quality'||strategy.key==='reps'){priority='plateau';priorityText=strategy.label;}
+        else if(strategy.key==='load'){priority='progress';priorityText=strategy.label;}
+        else if(strategy.key==='stimulus'){priority='stimulus';priorityText=strategy.label;}
+        else if(strategy.key==='rest'){priority='rest';priorityText=strategy.label;}
+        return {id:ex[0],name:ex[1],sets:decision.sets,kg:decision.kg,reps:decision.reps,rir:decision.rir,rest:decision.rest,action:decision.action,strategy:strategy.key,strategyLabel:strategy.label,strategyReason:strategy.reason,priority,priorityText,confidence:decision.confidence};
       });
       const hard=exercises.filter(x=>x.priority==='recover'||x.priority==='plateau').length, progressing=exercises.filter(x=>x.priority==='progress').length;
       const objective=adaptive.mode==='deload'?'Récupérer et maintenir la technique':adaptive.mode==='reduced'?'Consolider avec un volume réduit':hard>=2?'Débloquer les exercices prioritaires':progressing>=3?'Faire progresser les mouvements forts':'Consolider la double progression';
@@ -298,7 +359,7 @@
     const next=PLAN[nextSession()]; const recovery=recoveryScore(); const decision=adaptiveDecision(); const adaptiveProfiles=Object.entries(RANGES).map(([id,r])=>{const ex=Object.values(PLAN).flatMap(p=>p.exercises).find(x=>x[0]===id);return ex?{name:ex[1],profile:exerciseProfile(ex[1],r),intel:exerciseIntelligence(ex[1],r)}:null}).filter(Boolean); const plateauCount=adaptiveProfiles.filter(x=>x.profile.status==='plateau').length; const intelligenceCount=adaptiveProfiles.filter(x=>x.intel.exposures>=2).length; const bestProgressors=adaptiveProfiles.filter(x=>x.intel.e1rm>0).sort((a,b)=>b.intel.speed-a.intel.speed).slice(0,3); const intel2Profiles=Object.entries(RANGES).map(([id,r])=>{const ex=Object.values(PLAN).flatMap(p=>p.exercises).find(x=>x[0]===id);return ex?{name:ex[1],intel:exerciseIntelligence2(ex[1],r)}:null}).filter(Boolean); const intel2Plateaus=intel2Profiles.filter(x=>x.intel.plateauType!=='none').length; const intel2Progress=intel2Profiles.filter(x=>x.intel.status==='progress').length;
     layout(`<section class="hero compact"><div class="eyebrow">FITCOACH V7 · ADAPTIVE COACH ENGINE</div><h1>Votre progression<br><span>en un coup d’œil.</span></h1><p>Le Live Coach ajuste vos cibles en temps réel, estime la fatigue et transforme chaque séance en nouvelle donnée de progression.</p><section class="recovery-mini ${recovery.tone}"><b>${recovery.label}</b><span>${recovery.score}/100 · ${recovery.action}</span></section><section class="adaptive-mini ${decision.tone} "><b>${decision.label}</b><span>${decision.detail}</span></section></section>
       <section class="coach-dashboard"><div><div class="eyebrow">🎯 RECOMMANDATION</div><h2>${next.name}</h2><p>${next.focus}</p></div><button data-session="${nextSession()}">Démarrer →</button></section>
-      ${(()=>{const wp=weeklyPlanner();return '<section class="weekly-planner"><div class="section-title"><h2>🗓️ Adaptive Weekly Planner · V7.5</h2><span>'+wp.objective+'</span></div><div class="planner-summary '+wp.adaptive.tone+'"><div><b>'+wp.objective+'</b><span>Récupération · '+wp.recovery.score+'/100</span></div><p>'+wp.detail+'</p></div><div class="planner-sessions">'+wp.sessions.map((s,i)=>'<article class="planner-session"><div class="planner-head"><div><span>SÉANCE '+(i+1)+' · '+s.key+'</span><h3>'+s.name+'</h3><small>'+esc(s.focus)+'</small></div><button data-session="'+s.key+'">Démarrer</button></div><div class="planner-objective"><b>Objectif</b><span>'+esc(s.objective)+'</span></div><div class="planner-exercises">'+s.exercises.map(x=>'<div><b>'+esc(x.name)+'</b><span>'+x.sets+'×'+x.reps+' · RIR '+x.rir+(x.kg?' · '+x.kg+' kg':' · charge à définir')+'</span><em class="priority-'+x.priority+'">'+x.priorityText+'</em></div>').join('')+'</div></article>').join('')+'</div></section>'})()}
+      ${(()=>{const wp=weeklyPlanner();return '<section class="weekly-planner"><div class="section-title"><h2>🗓️ Adaptive Weekly Planner · V7.5</h2><span>'+wp.objective+'</span></div><div class="planner-summary '+wp.adaptive.tone+'"><div><b>'+wp.objective+'</b><span>Récupération · '+wp.recovery.score+'/100</span></div><p>'+wp.detail+'</p></div><div class="planner-sessions">'+wp.sessions.map((s,i)=>'<article class="planner-session"><div class="planner-head"><div><span>SÉANCE '+(i+1)+' · '+s.key+'</span><h3>'+s.name+'</h3><small>'+esc(s.focus)+'</small></div><button data-session="'+s.key+'">Démarrer</button></div><div class="planner-objective"><b>Objectif</b><span>'+esc(s.objective)+'</span></div><div class="planner-exercises">'+s.exercises.map(x=>'<div><b>'+esc(x.name)+'</b><span>'+x.sets+'×'+x.reps+' · RIR '+x.rir+(x.kg?' · '+x.kg+' kg':' · charge à définir')+'</span><em class="priority-'+x.priority+'">'+x.priorityText+'</em><small class="strategy-reason">'+esc(x.strategyReason)+'</small></div>').join('')+'</div></article>').join('')+'</div></section>'})()}
 
       <div class="grid stats"><div><b>${state.history.length}</b><small>séances</small></div><div><b>${Math.round(totalVol/100)/10}k</b><small>kg volume</small></div><div><b>${fmtMin(totalTime)}</b><small>temps total</small></div></div>
       <section><div class="section-title"><h2>Adaptive Coach · V7</h2><span>${plateauCount} plateau${plateauCount>1?"s":""}</span></div><div class="adaptive-summary"><div><b>🤖</b><span>Profils analysés</span><strong>${adaptiveProfiles.length}</strong></div><div><b>📈</b><span>En progression</span><strong>${progressing}</strong></div><div><b>🟠</b><span>Plateaux</span><strong>${plateauCount}</strong></div></div></section>
@@ -330,9 +391,9 @@
     const exercises=[]; let volume=0;
     route.sets.filter(s=>s.done).forEach(s=>{const e=p.exercises.find(x=>x[0]===s.exerciseId); const v=(Number(s.kg)||0)*(Number(s.reps)||0); volume+=v; exercises.push({name:e[1],kg:Number(s.kg)||0,reps:Number(s.reps)||0,rir:Number(s.rir)||0,set:s.index+1});});
     const duration=Math.max(1,Math.round((Date.now()-workoutStart)/1000)); const sessionRpeValue=sessionRpe(route.sets),sessionFatigue=fatigueScore(route.sets),sessionIntel=sessionIntelligence(p.exercises,route.sets,sessionRpeValue,sessionFatigue); state.closedLoop=Array.isArray(state.closedLoop)?state.closedLoop:[]; p.exercises.forEach(e=>{const r=RANGES[e[0]]||[e[3],e[3]],decision=route.engineDecisions?.[e[0]]||coachDecisionEngine(e[1],r,e),sets=route.sets.filter(s=>s.exerciseId===e[0]),result=closedLoopEvaluation(decision,sets,r);if(result.status!=='pending')state.closedLoop.push({date:new Date().toISOString(),exercise:e[1],decision,result});});state.closedLoop=state.closedLoop.slice(-100);
-    state.history.push({date:new Date().toISOString(),name:p.name,duration,volume,sessionRpe:sessionRpeValue,fatigue:sessionFatigue,exercises: p.exercises.map(e=>{const sets=route.sets.filter(s=>s.exerciseId===e[0]&&s.done).map(s=>({kg:Number(s.kg)||0,reps:Number(s.reps)||0,rir:Number(s.rir)||0,set:s.index+1}));return {name:e[1],kg:sets.length?sets[sets.length-1].kg:0,reps:sets.length?sets[sets.length-1].reps:0,rir:sets.length?sets[sets.length-1].rir:0,sets};}).filter(e=>e.sets.length)});state.coachDecisions=Array.isArray(state.coachDecisions)?state.coachDecisions:[];p.exercises.forEach(e=>{const r=RANGES[e[0]]||[e[3],e[3]],intel=exerciseIntelligence(e[1],r),rec=progressionRecommendation(e[1],r);const loop=state.closedLoop.filter(x=>x.exercise===e[1]).at(-1);state.coachDecisions.push({date:new Date().toISOString(),exercise:e[1],action:loop?.result?.action||rec.action,confidence:intel.confidence,e1rm:intel.e1rm,reason:loop?.result?.text||intel.reason,closedLoop:loop?.result?.status||'pending'});});state.coachDecisions=state.coachDecisions.slice(-100);save();localStorage.removeItem(DRAFT);
+    state.history.push({date:new Date().toISOString(),name:p.name,duration,volume,sessionRpe:sessionRpeValue,fatigue:sessionFatigue,exercises: p.exercises.map(e=>{const sets=route.sets.filter(s=>s.exerciseId===e[0]&&s.done).map(s=>({kg:Number(s.kg)||0,reps:Number(s.reps)||0,rir:Number(s.rir)||0,set:s.index+1}));return {name:e[1],kg:sets.length?sets[sets.length-1].kg:0,reps:sets.length?sets[sets.length-1].reps:0,rir:sets.length?sets[sets.length-1].rir:0,sets};}).filter(e=>e.sets.length)});state.coachDecisions=Array.isArray(state.coachDecisions)?state.coachDecisions:[];state.strategyHistory=Array.isArray(state.strategyHistory)?state.strategyHistory:[];p.exercises.forEach(e=>{const r=RANGES[e[0]]||[e[3],e[3]],intel=exerciseIntelligence(e[1],r),rec=progressionRecommendation(e[1],r),strategy=exerciseStrategy(e[1],r,e,route.sets.filter(s=>s.exerciseId===e[0])),loop=state.closedLoop.filter(x=>x.exercise===e[1]).at(-1);state.coachDecisions.push({date:new Date().toISOString(),exercise:e[1],action:loop?.result?.action||strategy.key,confidence:intel.confidence,e1rm:intel.e1rm,reason:loop?.result?.text||strategy.reason,closedLoop:loop?.result?.status||'pending'});state.strategyHistory.push({date:new Date().toISOString(),exercise:e[1],strategy:strategy.key,variable:strategy.variable,confidence:strategy.confidence,status:intel.status,plateauType:intel.plateauType||'none',result:loop?.result?.status||'pending'});});state.coachDecisions=state.coachDecisions.slice(-100);state.strategyHistory=state.strategyHistory.slice(-200);save();localStorage.removeItem(DRAFT);
     route.page='home';route.session=null;route.index=0;route.sets=[];
-    layout(`<section class="done-screen"><div class="trophy">🏆</div><div class="eyebrow">SÉANCE TERMINÉE</div><h1>Excellent travail<br><span>Continuez ainsi.</span></h1><div class="done-grid"><div><b>${Math.round(duration/60)} min</b><small>durée</small></div><div><b>${Math.round(volume)} kg</b><small>volume</small></div><div><b>${exercises.length}</b><small>séries validées</small></div><div><b>${sessionRpeValue}/10</b><small>RPE</small></div><div><b>${sessionFatigue}%</b><small>fatigue</small></div></div><section class="session-intelligence"><div class="section-title"><h2>🧠 Session Intelligence · V7.4</h2><span>${sessionIntel.quality}/100</span></div><div class="session-verdict"><b>${sessionIntel.verdict}</b><span>${sessionIntel.next}</span></div><div class="session-diagnostics">${sessionIntel.items.map(x=>"<article><b>"+esc(x.name)+"</b><strong>"+x.score+"/100</strong><small>"+x.sets+" séries · "+x.avgReps+" reps · RIR "+x.avgRir+"</small><em>"+x.action+"</em></article>").join("")}</div>${sessionIntel.strong.length?"<div class=\"session-note good\"><b>📈 Points forts</b><span>"+sessionIntel.strong.map(x=>esc(x.name)).join(" · ")+"</span></div>":""}${sessionIntel.hard.length?"<div class=\"session-note warn\"><b>⚠️ À surveiller</b><span>"+sessionIntel.hard.map(x=>esc(x.name)).join(" · ")+"</span></div>":""}</section><p>La régularité bat la perfection. Le volume de votre prochaine séance sera ajusté selon votre récupération.</p><button class="primary" data-nav="progress">Voir ma progression →</button></section>`);
+    layout(`<section class="done-screen"><div class="trophy">🏆</div><div class="eyebrow">SÉANCE TERMINÉE · V7.7</div><h1>Excellent travail<br><span>Continuez ainsi.</span></h1><div class="done-grid"><div><b>${Math.round(duration/60)} min</b><small>durée</small></div><div><b>${Math.round(volume)} kg</b><small>volume</small></div><div><b>${exercises.length}</b><small>séries validées</small></div><div><b>${sessionRpeValue}/10</b><small>RPE</small></div><div><b>${sessionFatigue}%</b><small>fatigue</small></div></div><section class="session-intelligence"><div class="section-title"><h2>🧠 Session Intelligence · V7.4</h2><span>${sessionIntel.quality}/100</span></div><div class="session-verdict"><b>${sessionIntel.verdict}</b><span>${sessionIntel.next}</span></div><div class="session-diagnostics">${sessionIntel.items.map(x=>"<article><b>"+esc(x.name)+"</b><strong>"+x.score+"/100</strong><small>"+x.sets+" séries · "+x.avgReps+" reps · RIR "+x.avgRir+"</small><em>"+x.action+"</em></article>").join("")}</div>${sessionIntel.strong.length?"<div class=\"session-note good\"><b>📈 Points forts</b><span>"+sessionIntel.strong.map(x=>esc(x.name)).join(" · ")+"</span></div>":""}${sessionIntel.hard.length?"<div class=\"session-note warn\"><b>⚠️ À surveiller</b><span>"+sessionIntel.hard.map(x=>esc(x.name)).join(" · ")+"</span></div>":""}</section><p>La régularité bat la perfection. Le volume de votre prochaine séance sera ajusté selon votre récupération.</p><button class="primary" data-nav="progress">Voir ma progression →</button></section>`);
   }
 
   document.addEventListener('change',e=>{if(['energyInput','sleepInput','sorenessInput'].includes(e.target.id)){state.readiness={energy:Number(document.getElementById('energyInput').value),sleep:Number(document.getElementById('sleepInput').value),soreness:Number(document.getElementById('sorenessInput').value)};save();home();}});
