@@ -28,6 +28,8 @@
     ]}
   };
   const KEY='fitcoach:v1';
+  const getLast=(name)=>{for(let i=state.history.length-1;i>=0;i--){const e=(state.history[i].exercises||[]).find(x=>x.name===name);if(e)return e;}return null;};
+  const weeklyCount=()=>{const d=new Date(),day=d.getDay()||7; const m=new Date(d);m.setDate(d.getDate()-day+1);m.setHours(0,0,0,0);return state.history.filter(h=>new Date(h.date)>=m).length;};
   const state=JSON.parse(localStorage.getItem(KEY)||'null')||{history:[],weight:78,goal:3};
   const app=document.getElementById('app');
   const save=()=>localStorage.setItem(KEY,JSON.stringify(state));
@@ -59,6 +61,7 @@
     layout(`
       <section class="hero"><div class="eyebrow">OBJECTIF · 3 SÉANCES / SEMAINE</div><h1>Construisez un corps plus fort.<br><span>Une séance à la fois.</span></h1><p>Programme full-body orienté muscle, posture et régularité.</p><button class="primary" data-action="choose">Commencer une séance →</button></section>
       <div class="grid stats"><div><b>${done}/3</b><small>séances cette semaine</small></div><div><b>${Math.round(mins/60*10)/10} h</b><small>temps cumulé</small></div><div><b>🔥 ${streak}</b><small>semaines régulières</small></div></div>
+      <section class="coach-card"><div><b>🎯 Coach du jour</b><p>${done>=3?'Objectif hebdomadaire atteint. Récupérez et revenez fort la semaine prochaine.':`Encore ${3-done} séance${3-done>1?'s':''} cette semaine. La régularité est votre priorité.`}</p></div><span>${Math.round(done/3*100)}%</span></section>
       <section><div class="section-title"><h2>Votre semaine</h2><span>${done>=3?'Objectif atteint 🎉':'Encore '+Math.max(0,3-done)+' à faire'}</span></div>
       <div class="week">${['L','M','M','J','V','S','D'].map((d,i)=>`<div class="${i < done?'done':''}"><span>${d}</span><i>${i<done?'✓':''}</i></div>`).join('')}</div></section>
       <section><div class="section-title"><h2>Les séances</h2></div><div class="cards">${Object.entries(PLAN).map(([k,p])=>`<button class="session-card" data-session="${k}"><strong>${p.name}</strong><span>${p.focus}</span><em>${p.exercises.length} exercices · 60–75 min</em><b>›</b></button>`).join('')}</div></section>
@@ -72,6 +75,7 @@
   function workout(){
     const p=PLAN[route.session]; if(!p){choose();return;}
     const ex=p.exercises[route.index];
+    const previous=getLast(ex[1]);
     const saved=route.sets.filter(s=>s.exerciseId===ex[0]);
     const total=p.exercises.length;
     layout(`<div class="workout-head"><button class="back" data-nav="home">←</button><div><b>${p.name}</b><small>${route.index+1}/${total}</small></div><span>${Math.round((route.index)/total*100)}%</span></div>
@@ -79,8 +83,8 @@
       <section class="exercise">
         <div class="illustration">${ex[6]}</div><div class="tag">EXERCICE ${route.index+1}</div><h1>${ex[1]}</h1><p class="muscles">${ex[3]}</p>
         <div class="cue"><b>Technique</b><span>${ex[4]}</span></div>
-        <div class="prescription"><strong>${ex[2]} × ${ex[3]}</strong><span>Repos recommandé · 90 s</span></div>
-        <div class="setlist">${Array.from({length:ex[2]},(_,i)=>{const s=saved[i]; return `<div class="set-row"><span>Série ${i+1}</span><input inputmode="decimal" placeholder="kg" value="${s?.kg??''}" data-kg="${i}"><input inputmode="numeric" placeholder="reps" value="${s?.reps??ex[3]}" data-reps="${i}"><button class="${s?.done?'checked':''}" data-set="${i}">${s?.done?'✓':'OK'}</button></div>`}).join('')}</div>
+        <div class="prescription"><strong>${ex[2]} × ${ex[3]}</strong><span>Repos recommandé · 90 s</span>${previous?`<small>Dernière fois : ${previous.kg} kg × ${previous.reps} reps</small>`:'<small>Première séance enregistrée</small>'}</div>
+        <div class="setlist">${Array.from({length:ex[2]},(_,i)=>{const s=saved[i]; return `<div class="set-row"><span>Série ${i+1}</span><input inputmode="decimal" placeholder="kg" value="${s?.kg??''}" data-kg="${i}"><input inputmode="numeric" placeholder="reps" value="${s?.reps??ex[3]}" data-reps="${i}"><input class="rir" inputmode="numeric" placeholder="RIR" value="${s?.rir??2}" data-rir="${i}"><button class="${s?.done?'checked':''}" data-set="${i}">${s?.done?'✓':'OK'}</button></div>`}).join('')}</div>
         <div class="actions"><button class="secondary" data-action="rest">⏱ Repos 90 s</button><button class="primary" data-action="next">${route.index===total-1?'Terminer la séance':'Exercice suivant →'}</button></div>
       </section>`);
   }
@@ -89,9 +93,10 @@
     const totalVol=state.history.reduce((sum,h)=>sum+(h.volume||0),0);
     const best={}; state.history.flatMap(h=>h.exercises||[]).forEach(e=>{if(!best[e.name]||e.kg>best[e.name].kg)best[e.name]={kg:e.kg,reps:e.reps};});
     const rows=Object.entries(best).slice(0,8);
+    const badges=[]; if(state.history.length>=1)badges.push('🏁 Première séance'); if(state.history.length>=10)badges.push('💪 10 séances'); if(totalVol>=10000)badges.push('🏋️ 10 000 kg'); if(calcStreak()>=4)badges.push('🔥 4 semaines');
     layout(`<section class="hero compact"><div class="eyebrow">PROGRESSION</div><h1>Chaque séance<br><span>compte.</span></h1></section>
       <div class="grid stats three"><div><b>${state.history.length}</b><small>séances</small></div><div><b>${Math.round(totalVol)}</b><small>kg déplacés</small></div><div><b>${fmtMin(state.history.reduce((a,h)=>a+h.duration,0))}</b><small>temps total</small></div></div>
-      <section><div class="section-title"><h2>Meilleures charges</h2></div><div class="table">${rows.map(([n,v])=>`<div><span>${esc(n)}</span><b>${v.kg} kg × ${v.reps}</b></div>`).join('')||'<div class="empty">Complétez votre première séance pour voir vos records.</div>'}</div></section>
+      <section><div class="section-title"><h2>Vos badges</h2></div><div class="badges">${badges.map(b=>`<span>${b}</span>`).join('')||'<span>Votre premier badge est à une séance d’ici 🏁</span>'}</div></section><section><div class="section-title"><h2>Meilleures charges</h2></div><div class="table">${rows.map(([n,v])=>`<div><span>${esc(n)}</span><b>${v.kg} kg × ${v.reps}</b></div>`).join('')||'<div class="empty">Complétez votre première séance pour voir vos records.</div>'}</div></section>
       <section><div class="section-title"><h2>Historique</h2></div><div class="history">${state.history.slice().reverse().slice(0,10).map(h=>`<article><div><b>${h.name}</b><small>${fmtDate(h.date)} · ${Math.round(h.duration/60)} min</small></div><strong>${Math.round(h.volume)} kg</strong></article>`).join('')||'<div class="empty">Aucun entraînement enregistré.</div>'}</div></section>`);
   }
 
@@ -122,9 +127,9 @@
     const chooseBtn=e.target.closest('[data-action="choose"]'); if(chooseBtn){route.page='home';choose();return;}
     const next=e.target.closest('[data-action="next"]'); if(next){ if(route.index===PLAN[route.session].exercises.length-1)completeSession(); else {route.index++;workout();} return;}
     const rest=e.target.closest('[data-action="rest"]'); if(rest) startTimer(90);
-    const set=e.target.closest('[data-set]'); if(set){const row=set.closest('.set-row'), ex=PLAN[route.session].exercises[route.index]; const kg=row.querySelector('[data-kg]').value, reps=row.querySelector('[data-reps]').value; const idx=Number(set.dataset.set); const prev=route.sets.find(s=>s.exerciseId===ex[0]&&s.index===idx); const rec={exerciseId:ex[0],index:idx,kg,reps,done:true}; if(prev) Object.assign(prev,rec); else route.sets.push(rec); set.classList.add('checked');set.textContent='✓';}
+    const set=e.target.closest('[data-set]'); if(set){const row=set.closest('.set-row'), ex=PLAN[route.session].exercises[route.index]; const kg=row.querySelector('[data-kg]').value, reps=row.querySelector('[data-reps]').value; const idx=Number(set.dataset.set); const prev=route.sets.find(s=>s.exerciseId===ex[0]&&s.index===idx); const rir=row.querySelector('[data-rir]').value; const rec={exerciseId:ex[0],index:idx,kg,reps,rir,done:true}; if(prev) Object.assign(prev,rec); else route.sets.push(rec); set.classList.add('checked');set.textContent='✓';}
   });
-  document.addEventListener('input',e=>{if(e.target.matches('[data-kg],[data-reps]')){const ex=PLAN[route.session].exercises[route.index],idx=Number(e.target.dataset.kg??e.target.dataset.reps);let r=route.sets.find(s=>s.exerciseId===ex[0]&&s.index===idx);if(!r){r={exerciseId:ex[0],index:idx,kg:'',reps:''};route.sets.push(r)};if(e.target.dataset.kg!==undefined)r.kg=e.target.value;else r.reps=e.target.value;}});
+  document.addEventListener('input',e=>{if(e.target.matches('[data-kg],[data-reps],[data-rir]')){const ex=PLAN[route.session].exercises[route.index],idx=Number(e.target.dataset.kg??e.target.dataset.reps??e.target.dataset.rir);let r=route.sets.find(s=>s.exerciseId===ex[0]&&s.index===idx);if(!r){r={exerciseId:ex[0],index:idx,kg:'',reps:''};route.sets.push(r)};if(e.target.dataset.kg!==undefined)r.kg=e.target.value;else if(e.target.dataset.reps!==undefined)r.reps=e.target.value;else r.rir=e.target.value;}});
   function startTimer(s){remaining=s; clearInterval(timer); const toast=document.createElement('div'); toast.className='timer'; toast.innerHTML='<b>Repos</b><strong id="timerValue">'+fmtMin(remaining)+'</strong><button id="stopTimer">Fermer</button>';document.body.appendChild(toast);document.getElementById('stopTimer').onclick=()=>{clearInterval(timer);toast.remove()};timer=setInterval(()=>{remaining--; const v=document.getElementById('timerValue'); if(v)v.textContent=fmtMin(Math.max(0,remaining)); if(remaining<=0){clearInterval(timer);navigator.vibrate?.([150,80,150]);}},1000);}
 
   home();
