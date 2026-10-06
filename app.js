@@ -210,8 +210,8 @@
   function workout(){
     const p=PLAN[route.session]; if(!p){choose();return;}
     const ex=p.exercises[route.index],previous=getLast(ex[1]),previousSets=getLastSets(ex[1]);
-    const range=RANGES[ex[0]]||[ex[3],ex[3]],saved=route.sets.filter(s=>s.exerciseId===ex[0]),total=p.exercises.length; const decision=adaptiveDecision(); const setCount=plannedSets(ex);
-    const preview=adaptiveTarget(ex[1],saved.length,range,previousSets,saved),targetLoad=preview.kg?preview.kg+' kg':'Charge à définir',unit=ex[0]==='plank'?'secondes':'reps'; const coach=coachDecision(ex[1],range); const live=liveState(saved,range),fatigue=fatigueScore(saved);
+    const range=RANGES[ex[0]]||[ex[3],ex[3]],saved=route.sets.filter(s=>s.exerciseId===ex[0]),total=p.exercises.length; const decision=adaptiveDecision(); const engine=coachDecisionEngine(ex[1],range,ex); const setCount=engine.sets;
+    const preview=adaptiveTarget(ex[1],saved.length,range,previousSets,saved),targetLoad=engine.kg?engine.kg+' kg':'Charge à définir',unit=ex[0]==='plank'?'secondes':'reps'; const coach=coachDecision(ex[1],range); const live=liveState(saved,range),fatigue=fatigueScore(saved);
     const previousLine=previous?'<small>Dernière séance : '+previous.kg+' kg × '+previous.reps+' reps · RIR '+(previous.rir||'—')+'</small>':'<small>Première séance enregistrée : construisez votre référence.</small>';
     const rows=Array.from({length:setCount},(_,i)=>{
       const s=saved[i],t=adaptiveTarget(ex[1],i,range,previousSets,saved),kg=s?.kg??(t.kg||''),reps=s?.reps??t.reps,rir=s?.rir??t.rir,feedback=s?.done?evaluateSet(s,range):null;
@@ -223,7 +223,7 @@
       '<div class="tag">EXERCICE '+(route.index+1)+' · SMART MODE</div><h1>'+ex[1]+'</h1><p class="muscles">'+ex[4]+'</p>'+
       '<div class="cue"><b>Technique</b><span>'+ex[5]+'</span></div>'+
       '<div class="coach-tip smart-tip"><b>🤖 Coach V7.1 · Live Coach</b><span>'+targetLoad+' × '+range[0]+'–'+range[1]+' '+unit+' · RIR cible '+preview.rir+'</span><small>La cible s’adapte après chaque série selon vos reps et votre RIR.</small></div><div class="live-status '+live.tone+'"><b>'+live.label+'</b><span>'+live.text+'</span><em>Fatigue estimée · '+fatigue+'%</em></div>'+
-      '<div class="prescription"><strong>'+setCount+' × '+range[0]+'–'+range[1]+' '+unit+'</strong><span>Repos recommandé · 90 s · RIR cible 2</span>'+previousLine+'</div><div class="volume-advice '+decision.tone+'"><b>'+decision.label+'</b><span>'+decision.detail+'</span></div><div class="coach-decision '+coach.tone+'"><b>'+coach.title+'</b><span>'+coach.text+'</span></div>'+
+      '<div class="prescription"><strong>'+setCount+' × '+range[0]+'–'+range[1]+' '+unit+'</strong><span>Repos recommandé · '+engine.rest+' s · RIR cible '+engine.rir+'</span>'+previousLine+'</div><div class="decision-engine"><b>🧠 Coach Decision Engine · V7.2</b><span>'+engine.reason+'</span><small>Action : '+engine.action+' · Confiance '+engine.confidence+'%</small></div><div class="volume-advice '+decision.tone+'"><b>'+decision.label+'</b><span>'+decision.detail+'</span></div><div class="coach-decision '+coach.tone+'"><b>'+coach.title+'</b><span>'+coach.text+'</span></div>'+
       '<div class="setlist">'+rows+'</div><div class="actions"><button class="secondary" data-action="rest">⏱ Repos 90 s</button><button class="primary" data-action="next">'+(route.index===total-1?'Terminer la séance':'Exercice suivant →')+'</button></div></section>');
   }
   function progress(){
