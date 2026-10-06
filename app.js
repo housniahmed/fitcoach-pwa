@@ -34,6 +34,32 @@
   const weights=()=>state.weights||[];
   const getLast=(name)=>{for(let i=state.history.length-1;i>=0;i--){const e=(state.history[i].exercises||[]).find(x=>x.name===name);if(e)return e;}return null;};
   const getLastSets=(name)=>{for(let i=state.history.length-1;i>=0;i--){const h=state.history[i];const e=(h.exercises||[]).find(x=>x.name===name);if(e)return e.sets?.length?e.sets:[e];}return [];};
+  const loadStep=(load)=>{load=Number(load)||0;return load>=20?2.5:load>=10?1.25:0.5;};
+  const roundLoad=(load)=>Math.round((Number(load)||0)*100)/100;
+  const targetForSet=(name,setIndex,range,previousSets,currentSets)=>{
+    const completed=currentSets.filter(s=>s.done&&Number(s.reps)>0);
+    const previous=previousSets.filter(s=>Number(s.reps)>0);
+    let base=previous.length?Number(previous[Math.min(setIndex,previous.length-1)].kg)||0:0;
+    if(!base&&previous.length)base=Number(previous[previous.length-1].kg)||0;
+    if(completed.length){
+      const last=completed.at(-1),lastKg=Number(last.kg)||base,reps=Number(last.reps)||range[0],rir=Number(last.rir);
+      if(rir<2)base=lastKg; else if(reps>=range[1]&&rir>=2)base=roundLoad(lastKg+loadStep(lastKg)); else base=lastKg;
+    }
+    const prior=completed[setIndex-1];
+    if(prior){
+      const pk=Number(prior.kg)||base,pr=Number(prior.reps)||range[0],pir=Number(prior.rir);
+      if(pir<2)base=pk; else if(pr>=range[1]&&pir>=2)base=roundLoad(pk+loadStep(pk)); else base=pk;
+    }
+    return {kg:base,reps:range[0],rir:2};
+  };
+  const evaluateSet=(set,range)=>{
+    const reps=Number(set.reps)||0,rir=Number(set.rir);
+    if(!reps)return {tone:'neutral',title:'Saisissez votre performance',text:'Entrez les reps et le RIR pour que le coach adapte la prochaine série.'};
+    if(Number.isFinite(rir)&&rir<2)return {tone:'warn',title:'⚠️ Effort élevé',text:'RIR < 2 : gardez cette charge pour la prochaine série et privilégiez une technique propre.'};
+    if(reps>=range[1]&&(!Number.isFinite(rir)||rir>=2))return {tone:'good',title:'✓ Série validée',text:'Haut de fourchette atteint avec une marge suffisante : +1 palier possible à la prochaine série.'};
+    return {tone:'good',title:'✓ Bonne série',text:'Gardez la charge et essayez d’ajouter 1 répétition sur la prochaine série.'};
+  };
+
   const recommend=(previousSets,target,range)=>{if(!previousSets.length)return 'Commencez léger et gardez environ 3 RIR. Priorité à la technique.';const valid=previousSets.filter(s=>Number(s.reps)>0);if(!valid.length)return 'Commencez léger et construisez une première référence.';const allTop=valid.length>=3&&valid.every(s=>Number(s.reps)>=range[1]);const allSafe=valid.every(s=>Number(s.rir)>=2);const avgKg=valid.reduce((a,s)=>a+(Number(s.kg)||0),0)/valid.length;const avgRir=valid.reduce((a,s)=>a+(Number(s.rir)||0),0)/valid.length;const load=avgKg?Math.round(avgKg*10)/10:0;if(allTop&&allSafe&&load){const step=load>=20?2.5:load>=10?1.25:0.5;return `Progression : ${load+step} kg × ${range[0]}–${range[1]} reps. La dernière séance était complète avec environ ${Math.round(avgRir*10)/10} RIR moyen.`;}if(valid.some(s=>Number(s.rir)<2)){return `Conservez ${load?load+' kg':'la même charge'} et visez ${range[0]}–${range[1]} reps. Ne montez pas la charge tant que le RIR moyen reste sous 2.`;}const best=Math.max(...valid.map(s=>Number(s.reps)||0));return `Conservez ${load?load+' kg':'la même charge'} et essayez d'atteindre ${Math.min(range[1],best+1)} reps sur les séries avec une technique propre.`;};
   const weeklyCount=()=>{const d=new Date(),day=d.getDay()||7; const m=new Date(d);m.setDate(d.getDate()-day+1);m.setHours(0,0,0,0);return state.history.filter(h=>new Date(h.date)>=m).length;};
   let state;try{state=JSON.parse(localStorage.getItem(KEY)||'null')}catch{} state=state||{history:[],weight:78,goal:3};state.history=Array.isArray(state.history)?state.history:[];state.weights=Array.isArray(state.weights)?state.weights:[];
@@ -80,26 +106,23 @@
 
   function workout(){
     const p=PLAN[route.session]; if(!p){choose();return;}
-    const ex=p.exercises[route.index];
-    const previous=getLast(ex[1]);
-    const previousSets=getLastSets(ex[1]);
-    const range=RANGES[ex[0]]||[ex[3],ex[3]];
-    const saved=route.sets.filter(s=>s.exerciseId===ex[0]);
-    const draftKey=route.session+'-'+route.index;
-    const draft=JSON.parse(localStorage.getItem(DRAFT)||'{}')[draftKey];
-    if(!saved.length&&draft?.sets) route.sets.push(...draft.sets);
-    const total=p.exercises.length;
-    layout(`<div class="workout-head"><button class="back" data-nav="home">←</button><div><b>${p.name}</b><small>${route.index+1}/${total}</small></div><span>${Math.round((route.index)/total*100)}%</span></div>
-      <div class="progress"><i style="width:${Math.round((route.index+1)/total*100)}%"></i></div>
-      <section class="exercise">
-        <div class="illustration"><img src="assets/illustrations/${ex[0]}.svg" alt="Illustration ${ex[1]}" loading="eager"></div><div class="tag">EXERCICE ${route.index+1}</div><h1>${ex[1]}</h1><p class="muscles">${ex[4]}</p>
-        <div class="cue"><b>Technique</b><span>${ex[5]}</span></div><div class="coach-tip"><b>🎯 Suggestion du coach</b><span>${recommend(previousSets,range[1],range)}</span></div>
-        <div class="prescription"><strong>${ex[2]} × ${range[0]}–${range[1]} ${ex[0]==='plank'?'secondes':'répétitions'}</strong><span>Repos recommandé · 90 s</span>${previous?`<small>Dernière fois : ${previous.kg} kg × ${previous.reps} reps</small>`:'<small>Première séance enregistrée</small>'}</div>
-        <div class="setlist">${Array.from({length:ex[2]},(_,i)=>{const s=saved[i]; return `<div class="set-row"><span>Série ${i+1}</span><input inputmode="decimal" placeholder="kg" value="${s?.kg??''}" data-kg="${i}"><input inputmode="numeric" placeholder="reps" value="${s?.reps??ex[3]}" data-reps="${i}"><input class="rir" inputmode="numeric" placeholder="RIR" value="${s?.rir??2}" data-rir="${i}"><button class="${s?.done?'checked':''}" data-set="${i}">${s?.done?'✓':'OK'}</button></div>`}).join('')}</div>
-        <div class="actions"><button class="secondary" data-action="rest">⏱ Repos 90 s</button><button class="primary" data-action="next">${route.index===total-1?'Terminer la séance':'Exercice suivant →'}</button></div>
-      </section>`);
+    const ex=p.exercises[route.index],previous=getLast(ex[1]),previousSets=getLastSets(ex[1]);
+    const range=RANGES[ex[0]]||[ex[3],ex[3]],saved=route.sets.filter(s=>s.exerciseId===ex[0]),total=p.exercises.length;
+    const preview=targetForSet(ex[1],saved.length,range,previousSets,saved),targetLoad=preview.kg?preview.kg+' kg':'Charge à définir',unit=ex[0]==='plank'?'secondes':'reps';
+    const previousLine=previous?'<small>Dernière séance : '+previous.kg+' kg × '+previous.reps+' reps · RIR '+(previous.rir||'—')+'</small>':'<small>Première séance enregistrée : construisez votre référence.</small>';
+    const rows=Array.from({length:ex[2]},(_,i)=>{
+      const s=saved[i],t=targetForSet(ex[1],i,range,previousSets,saved),kg=s?.kg??(t.kg||''),reps=s?.reps??t.reps,rir=s?.rir??t.rir,feedback=s?.done?evaluateSet(s,range):null;
+      return '<div class="set-row '+(s?.done?'set-complete':'')+'"><span>Série '+(i+1)+'<small class="set-target">Cible : '+(t.kg?t.kg+' kg':'à définir')+' · '+t.reps+' reps · RIR '+t.rir+'</small></span><input inputmode="decimal" placeholder="kg" value="'+kg+'" data-kg="'+i+'"><input inputmode="numeric" placeholder="reps" value="'+reps+'" data-reps="'+i+'"><input class="rir" inputmode="numeric" placeholder="RIR" value="'+rir+'" data-rir="'+i+'"><button class="'+(s?.done?'checked':'')+'" data-set="'+i+'">'+(s?.done?'✓':'OK')+'</button>'+(feedback?'<div class="set-feedback '+feedback.tone+'"><b>'+feedback.title+'</b><span>'+feedback.text+'</span></div>':'')+'</div>';
+    }).join('');
+    layout('<div class="workout-head"><button class="back" data-nav="home">←</button><div><b>'+p.name+'</b><small>'+route.index+1+'/'+total+'</small></div><span>'+Math.round((route.index)/total*100)+'%</span></div>'+
+      '<div class="progress"><i style="width:'+Math.round((route.index+1)/total*100)+'%"></i></div>'+
+      '<section class="exercise"><div class="illustration"><img src="assets/illustrations/'+ex[0]+'.svg" alt="Illustration '+ex[1]+'" loading="eager"></div>'+
+      '<div class="tag">EXERCICE '+(route.index+1)+' · SMART MODE</div><h1>'+ex[1]+'</h1><p class="muscles">'+ex[4]+'</p>'+
+      '<div class="cue"><b>Technique</b><span>'+ex[5]+'</span></div>'+
+      '<div class="coach-tip smart-tip"><b>🤖 Coach V6 · cible de départ</b><span>'+targetLoad+' × '+range[0]+'–'+range[1]+' '+unit+' · RIR cible '+preview.rir+'</span><small>La cible s’adapte après chaque série selon vos reps et votre RIR.</small></div>'+
+      '<div class="prescription"><strong>'+ex[2]+' × '+range[0]+'–'+range[1]+' '+unit+'</strong><span>Repos recommandé · 90 s · RIR cible 2</span>'+previousLine+'</div>'+
+      '<div class="setlist">'+rows+'</div><div class="actions"><button class="secondary" data-action="rest">⏱ Repos 90 s</button><button class="primary" data-action="next">'+(route.index===total-1?'Terminer la séance':'Exercice suivant →')+'</button></div></section>');
   }
-
   function progress(){
     const totalVol=state.history.reduce((sum,h)=>sum+(h.volume||0),0);
     const totalTime=state.history.reduce((a,h)=>a+(h.duration||0),0);
@@ -116,7 +139,7 @@
     const consistency=Math.min(100,Math.round(state.history.length/Math.max(1,Math.ceil((Date.now()-new Date(state.history[0]?.date||Date.now()))/(7*86400000)))*100/3));
     const badges=[];if(state.history.length>=1)badges.push('🏁 Première séance');if(state.history.length>=10)badges.push('💪 10 séances');if(totalVol>=10000)badges.push('🏋️ 10 000 kg');if(calcStreak()>=4)badges.push('🔥 4 semaines');if(progressing>=3)badges.push('📈 En progression');
     const next=PLAN[nextSession()];
-    layout(`<section class="hero compact"><div class="eyebrow">FITCOACH V5 · COACHING</div><h1>Votre progression<br><span>en un coup d’œil.</span></h1><p>Le tableau de bord analyse votre régularité, votre volume et vos performances pour guider la prochaine étape.</p></section>
+    layout(`<section class="hero compact"><div class="eyebrow">FITCOACH V6 · SMART COACHING</div><h1>Votre progression<br><span>en un coup d’œil.</span></h1><p>Le coach adapte vos cibles série après série et utilise vos performances réelles pour guider la prochaine étape.</p></section>
       <section class="coach-dashboard"><div><div class="eyebrow">🎯 RECOMMANDATION</div><h2>${next.name}</h2><p>${next.focus}</p></div><button data-session="${nextSession()}">Démarrer →</button></section>
       <div class="grid stats"><div><b>${state.history.length}</b><small>séances</small></div><div><b>${Math.round(totalVol/100)/10}k</b><small>kg volume</small></div><div><b>${fmtMin(totalTime)}</b><small>temps total</small></div></div>
       <section><div class="section-title"><h2>État de progression</h2><span>${progressing} en hausse</span></div><div class="status-grid"><div><b>📈 ${progressing}</b><small>progressent</small></div><div><b>⏸ ${stagnant}</b><small>stables</small></div><div><b>📉 ${declining}</b><small>à surveiller</small></div></div></section>
@@ -158,7 +181,14 @@
     const chooseBtn=e.target.closest('[data-action="choose"]'); if(chooseBtn){route.page='home';choose();return;}
     const next=e.target.closest('[data-action="next"]'); if(next){ if(route.index===PLAN[route.session].exercises.length-1)completeSession(); else {route.index++;workout();} return;}
     const rest=e.target.closest('[data-action="rest"]'); if(rest) startTimer(90);
-    const set=e.target.closest('[data-set]'); if(set){const row=set.closest('.set-row'), ex=PLAN[route.session].exercises[route.index]; const kg=row.querySelector('[data-kg]').value, reps=row.querySelector('[data-reps]').value; const idx=Number(set.dataset.set); const prev=route.sets.find(s=>s.exerciseId===ex[0]&&s.index===idx); const rir=row.querySelector('[data-rir]').value; const rec={exerciseId:ex[0],index:idx,kg,reps,rir,done:true}; if(prev) Object.assign(prev,rec); else route.sets.push(rec); set.classList.add('checked');set.textContent='✓';saveDraft();}
+    const set=e.target.closest('[data-set]'); if(set){
+      const row=set.closest('.set-row'),ex=PLAN[route.session].exercises[route.index],range=RANGES[ex[0]]||[ex[3],ex[3]],kg=row.querySelector('[data-kg]').value,reps=row.querySelector('[data-reps]').value,rir=row.querySelector('[data-rir]').value,idx=Number(set.dataset.set);
+      if(!reps){row.querySelector('[data-reps]').focus();return;}
+      const prev=route.sets.find(s=>s.exerciseId===ex[0]&&s.index===idx),rec={exerciseId:ex[0],index:idx,kg,reps,rir,done:true};
+      if(prev)Object.assign(prev,rec);else route.sets.push(rec);set.classList.add('checked');set.textContent='✓';saveDraft();
+      const f=evaluateSet(rec,range);let box=row.querySelector('.set-feedback');if(box)box.remove();box=document.createElement('div');box.className='set-feedback '+f.tone;box.innerHTML='<b>'+f.title+'</b><span>'+f.text+'</span>';row.appendChild(box);
+      if(Number(rir)<2)startTimer(90);
+    }
   });
   document.addEventListener('input',e=>{if(e.target.matches('[data-kg],[data-reps],[data-rir]')){const ex=PLAN[route.session].exercises[route.index],idx=Number(e.target.dataset.kg??e.target.dataset.reps??e.target.dataset.rir);let r=route.sets.find(s=>s.exerciseId===ex[0]&&s.index===idx);if(!r){r={exerciseId:ex[0],index:idx,kg:'',reps:''};route.sets.push(r)};if(e.target.dataset.kg!==undefined)r.kg=e.target.value;else if(e.target.dataset.reps!==undefined)r.reps=e.target.value;else r.rir=e.target.value;saveDraft();}});
   function saveDraft(){if(!route.session)return;const drafts=JSON.parse(localStorage.getItem(DRAFT)||'{}');drafts[route.session]={index:route.index,sets:route.sets,start:workoutStart,savedAt:Date.now()};localStorage.setItem(DRAFT,JSON.stringify(drafts));}
