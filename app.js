@@ -263,7 +263,7 @@
     const sessions=order.map((key)=>{
       const plan=PLAN[key];
       const exercises=plan.exercises.map(ex=>{
-        const range=RANGES[ex[0]]||[ex[3],ex[3]], decision=coachDecisionEngine(ex[1],range,ex), intel=exerciseIntelligence(ex[1],range), profile=exerciseProfile(ex[1],range);
+        const range=RANGES[ex[0]]||[ex[3],ex[3]], decision=coachDecisionEngine(ex[1],range,ex), intel=exerciseIntelligence2(ex[1],range), profile=exerciseProfile(ex[1],range);
         let priority='normal',priorityText='Consolider';
         if(profile.status==='recovery-plateau'){priority='recover';priorityText='Récupérer';}
         else if(profile.status==='technical-plateau'){priority='plateau';priorityText='+1 rep';}
