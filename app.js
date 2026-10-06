@@ -133,6 +133,7 @@
     else if(status==='progress')recommendation='Progression régulière : poursuivre la double progression.';
     return {e1rm:last.e,speed,confidence,exposures:history.length,status,reason,recommendation};
   };
+  const progressionRecommendation=(name,range)=>{const intel=exerciseIntelligence(name,range);if(intel.status==='recovery-plateau')return {action:'Récupérer',tone:'warn',text:intel.recommendation};if(intel.status==='technical-plateau')return {action:'+1 rep',tone:'warn',text:intel.recommendation};if(intel.status==='progress'&&intel.speed>0.5)return {action:'Double progression',tone:'good',text:intel.recommendation};if(intel.status==='progress')return {action:'Maintenir la trajectoire',tone:'good',text:intel.recommendation};return {action:'Construire la référence',tone:'neutral',text:intel.recommendation};};
   const adaptiveTarget=(name,setIndex,range,previousSets,currentSets)=>{
     const base=targetForSet(name,setIndex,range,previousSets,currentSets);
     if(adaptiveDecision().mode==='deload')return {...base,reps:range[0],rir:3};
