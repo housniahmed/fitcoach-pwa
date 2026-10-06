@@ -113,6 +113,26 @@
     return {status:'stable',label:'🟡 Stable',tone:'warn',detail:'Performance stable : cherchez une répétition propre supplémentaire.',gain};
   };
   const estimateE1RM=(kg,reps)=>{const load=Number(kg)||0,r=Number(reps)||0;if(load<=0||r<=0)return 0;return r<=12?Math.round(load*(1+r/30)*10)/10:Math.round(load*10)/10};
+  const exerciseIntelligence=(name,range)=>{
+    const history=exerciseHistory(name).slice(-8);
+    if(!history.length)return {e1rm:0,speed:0,confidence:0,exposures:0,status:'new',reason:'insufficient-data',recommendation:'Construisez une référence avec plusieurs séances.'};
+    const points=history.map(h=>{const sets=h.sets?.length?h.sets:[h];return sets.reduce((b,x)=>{const e=estimateE1RM(x.kg,x.reps);return e>b.e?{e,date:h.date}:b},{e:0,date:h.date})}).filter(x=>x.e>0);
+    if(!points.length)return {e1rm:0,speed:0,confidence:10,exposures:history.length,status:'new',reason:'insufficient-load-data',recommendation:'Ajoutez des charges mesurables pour estimer la progression.'};
+    const first=points[0],last=points.at(-1),weeks=Math.max(1,(new Date(last.date)-new Date(first.date))/604800000);
+    const speed=Math.round(((last.e-first.e)/Math.max(first.e,1))*100/weeks*10)/10;
+    const profile=exerciseProfile(name,range),recovery=recoveryScore();
+    const rirValues=history.flatMap(h=>(h.sets||[]).map(x=>Number(x.rir))).filter(Number.isFinite);
+    const consistency=rirValues.length>=3?Math.max(0,1-Math.min(2,Math.sqrt(rirValues.reduce((a,v)=>a+Math.pow(v-2,2),0)/rirValues.length))/2):0.5;
+    const confidence=Math.min(95,Math.round(Math.min(1,history.length/5)*55+Math.min(1,points.length/4)*25+consistency*20));
+    let status=profile.status,reason='normal';
+    if(profile.status==='plateau'&&recovery.score<65){status='recovery-plateau';reason='recovery'}else if(profile.status==='plateau'){status='technical-plateau';reason='performance'}else if(profile.status==='progress')reason='progress';
+    let recommendation='Maintenir et chercher des répétitions propres.';
+    if(status==='recovery-plateau')recommendation='Maintenir la charge et prioriser la récupération avant de progresser.';
+    else if(status==='technical-plateau')recommendation='Conserver la charge et gagner 1 répétition propre avant toute hausse.';
+    else if(status==='progress'&&speed>0.5)recommendation='Progression rapide : hausse de charge uniquement en haut de fourchette.';
+    else if(status==='progress')recommendation='Progression régulière : poursuivre la double progression.';
+    return {e1rm:last.e,speed,confidence,exposures:history.length,status,reason,recommendation};
+  };
   const adaptiveTarget=(name,setIndex,range,previousSets,currentSets)=>{
     const base=targetForSet(name,setIndex,range,previousSets,currentSets);
     if(adaptiveDecision().mode==='deload')return {...base,reps:range[0],rir:3};
